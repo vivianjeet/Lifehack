@@ -1,0 +1,45 @@
+.menu-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background-color: #f0f0f0;
+}
+
+body.dark .menu-bar {
+  background-color: #333;
+  color: #fff;
+}
+
+body.dark .menu-bar a {
+  color: #fff;
+}
+
+.menu-bar a {
+  text-decoration: none;
+  color: #333;
+  font-weight: bold;
+}
+
+.menu-right button {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+.theme-toggle-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle-button svg {
+  color: #333;
+}
+
+body.dark .theme-toggle-button svg {
+  color: #fff;
+}

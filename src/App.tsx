@@ -1,25 +1,30 @@
-import React from 'react';
-import logo from './logo.svg';
+import React, { useContext, useEffect } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import MenAtWork from './MenAtWork';
+import PrivacyPolicy from './PrivacyPolicy';
+import MenuBar from './MenuBar';
+import { ThemeContext } from './ThemeContext';
 import './App.css';
 
 function App() {
+  const { theme, toggleTheme } = useContext(ThemeContext);
+
+  useEffect(() => {
+    document.body.className = theme;
+  }, [theme]);
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <BrowserRouter>
+      <div className="app-container">
+        <MenuBar toggleTheme={toggleTheme} theme={theme} />
+        <main className="content-area">
+          <Routes>
+            <Route path="/" element={<MenAtWork />} />
+            <Route path="/naradmuni/alpha/privacy" element={<PrivacyPolicy />} />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
   );
 }
 
