@@ -160,16 +160,50 @@ const Game: React.FC = () => {
   const [score1, setScore1] = useState<number>(0);
   const [score2, setScore2] = useState<number>(0);
 
+  const [resetTrigger, setResetTrigger] = useState<number>(0);
+
   const gameId = 'game1'; // Fixed for demo
 
-  // Listen to opponent's board and score
+  // Listen to reset trigger
+  useEffect(() => {
+    const resetRef = ref(database, `games/${gameId}/reset`);
+    const unsubscribeReset = onValue(resetRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data && data !== resetTrigger) {
+        console.log('Reset triggered from DB');
+        setBoard1(initialBoard());
+        setBoard2(initialBoard());
+        setScore1(0);
+        setScore2(0);
+        setResetTrigger(data);
+      }
+    });
+    return () => unsubscribeReset();
+  }, [resetTrigger, gameId]);
+
+  const handleReset = () => {
+    const newResetTrigger = Date.now(); // Use timestamp as unique trigger
+    console.log('Resetting game');
+    set(ref(database, `games/${gameId}/reset`), newResetTrigger)
+      .then(() => console.log('Reset triggered in DB'))
+      .catch((error) => console.error('Error triggering reset:', error));
+    // Also reset local state immediately
+    setBoard1(initialBoard());
+    setBoard2(initialBoard());
+    setScore1(0);
+    setScore2(0);
+    setResetTrigger(newResetTrigger);
+  };
   useEffect(() => {
     const opponent = player === 1 ? 2 : 1;
     const boardRef = ref(database, `games/${gameId}/player${opponent}/board`);
     const scoreRef = ref(database, `games/${gameId}/player${opponent}/score`);
 
+    console.log(`Player ${player} listening to opponent ${opponent}`);
+
     const unsubscribeBoard = onValue(boardRef, (snapshot) => {
       const data = snapshot.val();
+      console.log(`Player ${player} received board update:`, data);
       if (data) {
         setBoard1(prev => opponent === 1 ? data : prev);
         setBoard2(prev => opponent === 2 ? data : prev);
@@ -178,6 +212,7 @@ const Game: React.FC = () => {
 
     const unsubscribeScore = onValue(scoreRef, (snapshot) => {
       const data = snapshot.val();
+      console.log(`Player ${player} received score update:`, data);
       if (data !== null) {
         setScore1(prev => opponent === 1 ? data : prev);
         setScore2(prev => opponent === 2 ? data : prev);
@@ -195,8 +230,13 @@ const Game: React.FC = () => {
     const result = moveBoard(myBoard, direction);
     if (result.score > 0 || JSON.stringify(result.board) !== JSON.stringify(myBoard)) {
       // Update Firebase
-      set(ref(database, `games/${gameId}/player${player}/board`), result.board);
-      set(ref(database, `games/${gameId}/player${player}/score`), (player === 1 ? score1 : score2) + result.score);
+      console.log(`Player ${player} moving ${direction}, updating DB`);
+      set(ref(database, `games/${gameId}/player${player}/board`), result.board)
+        .then(() => console.log('Board updated successfully'))
+        .catch((error) => console.error('Error updating board:', error));
+      set(ref(database, `games/${gameId}/player${player}/score`), (player === 1 ? score1 : score2) + result.score)
+        .then(() => console.log('Score updated successfully'))
+        .catch((error) => console.error('Error updating score:', error));
       // Update local
       if (player === 1) {
         setBoard1(result.board);
@@ -253,6 +293,7 @@ const Game: React.FC = () => {
         <div className="score">Player 1 Score: {score1}</div>
         <div className="score">Player 2 Score: {score2}</div>
       </div>
+      <button onClick={handleReset} className="reset-button">Reset Game</button>
       <p>Controls: {player === 1 ? 'Arrow Keys' : 'WASD Keys'} or Touch on Your Board v1</p>
       <div className="boards">
         <div className="board-wrapper">
