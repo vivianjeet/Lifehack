@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ref, onValue, set } from 'firebase/database';
+import { ref, onValue, set, update } from 'firebase/database';
 import { database } from './firebase';
 import './Game.css';
 
@@ -169,10 +169,12 @@ const Game: React.FC = () => {
     const resetRef = ref(database, `games/${gameId}/reset`);
     const unsubscribeReset = onValue(resetRef, (snapshot) => {
       const data = snapshot.val();
+      console.log(`Player ${player} reset trigger:`, data, 'current:', resetTrigger);
       if (data && data !== resetTrigger) {
-        console.log('Reset triggered from DB');
-        setBoard1(initialBoard());
-        setBoard2(initialBoard());
+        console.log('Reset triggered from DB for player', player);
+        const initial = initialBoard();
+        setBoard1(initial);
+        setBoard2(initial);
         setScore1(0);
         setScore2(0);
         setResetTrigger(data);
@@ -183,13 +185,25 @@ const Game: React.FC = () => {
 
   const handleReset = () => {
     const newResetTrigger = Date.now(); // Use timestamp as unique trigger
-    console.log('Resetting game');
-    set(ref(database, `games/${gameId}/reset`), newResetTrigger)
-      .then(() => console.log('Reset triggered in DB'))
-      .catch((error) => console.error('Error triggering reset:', error));
+    const initial = initialBoard();
+    console.log(`Player ${player} initiating reset with trigger:`, newResetTrigger);
+    
+    // Reset both players' data in DB
+    const updates = {
+      [`games/${gameId}/player1/board`]: initial,
+      [`games/${gameId}/player1/score`]: 0,
+      [`games/${gameId}/player2/board`]: initial,
+      [`games/${gameId}/player2/score`]: 0,
+      [`games/${gameId}/reset`]: newResetTrigger
+    };
+    
+    update(ref(database), updates)
+      .then(() => console.log('Game reset successfully in DB'))
+      .catch((error) => console.error('Error resetting game:', error));
+    
     // Also reset local state immediately
-    setBoard1(initialBoard());
-    setBoard2(initialBoard());
+    setBoard1(initial);
+    setBoard2(initial);
     setScore1(0);
     setScore2(0);
     setResetTrigger(newResetTrigger);
