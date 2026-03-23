@@ -6,7 +6,7 @@ import { getDatabase } from 'firebase/database';
 const firebaseConfig = {
   apiKey: "AIzaSyAtDI6aop5nXuevsMoiTQ0-1sbg1pMTdE8",
   authDomain: "lifehack-website-e639b.firebaseapp.com",
-  databaseURL: "https://lifehack-website-e639b-default-rtdb.firebaseio.com/",
+  databaseURL: "https://lifehack-website-e639b-default-rtdb.asia-southeast1.firebasedatabase.app/",
   projectId: "lifehack-website-e639b",
   storageBucket: "lifehack-website-e639b.firebasestorage.app",
   messagingSenderId: "922225540799",
