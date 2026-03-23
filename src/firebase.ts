@@ -1,15 +1,17 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
 
+
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  // Placeholder config - replace with your actual Firebase config
-  apiKey: "your-api-key",
-  authDomain: "your-project.firebaseapp.com",
-  databaseURL: "https://your-project-default-rtdb.firebaseio.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "your-app-id"
+  apiKey: "AIzaSyAtDI6aop5nXuevsMoiTQ0-1sbg1pMTdE8",
+  authDomain: "lifehack-website-e639b.firebaseapp.com",
+  databaseURL: "https://console.firebase.google.com/u/0/project/lifehack-website-e639b/database/lifehack-website-e639b-default-rtdb/data/~2F",
+  projectId: "lifehack-website-e639b",
+  storageBucket: "lifehack-website-e639b.firebasestorage.app",
+  messagingSenderId: "922225540799",
+  appId: "1:922225540799:web:85331555345d1c2ef4d00a",
+  measurementId: "G-K18921TQKW"
 };
 
 const app = initializeApp(firebaseConfig);
