@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
+import { ref, onValue, set } from 'firebase/database';
+import { database } from './firebase';
 import './Game.css';
 
 const SIZE = 4;
@@ -100,16 +103,17 @@ const moveBoard = (board: number[][], direction: string) => {
   return result;
 };
 
-const Board: React.FC<{ board: number[][], onMove: (direction: string) => void }> = ({ board, onMove }) => {
+const Board: React.FC<{ board: number[][], onMove?: (direction: string) => void }> = ({ board, onMove }) => {
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (!onMove) return;
     const touch = e.touches[0];
     setTouchStart({ x: touch.clientX, y: touch.clientY });
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStart) return;
+    if (!onMove || !touchStart) return;
     const touch = e.changedTouches[0];
     const deltaX = touch.clientX - touchStart.x;
     const deltaY = touch.clientY - touchStart.y;
@@ -130,8 +134,8 @@ const Board: React.FC<{ board: number[][], onMove: (direction: string) => void }
   return (
     <div
       className="board"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
+      onTouchStart={onMove ? handleTouchStart : undefined}
+      onTouchEnd={onMove ? handleTouchEnd : undefined}
     >
       {board.map((row, i) => (
         <div key={i} className="row">
@@ -147,79 +151,117 @@ const Board: React.FC<{ board: number[][], onMove: (direction: string) => void }
 };
 
 const Game: React.FC = () => {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const player = searchParams.get('player') === '2' ? 2 : 1;
+
   const [board1, setBoard1] = useState<number[][]>(initialBoard);
   const [board2, setBoard2] = useState<number[][]>(initialBoard);
   const [score1, setScore1] = useState<number>(0);
   const [score2, setScore2] = useState<number>(0);
 
-  const moveBoard1 = useCallback((direction: string) => {
-    setBoard1(prev => {
-      const result = moveBoard(prev, direction);
-      setScore1(s => s + result.score);
-      return result.board;
-    });
-  }, []);
+  const gameId = 'game1'; // Fixed for demo
 
-  const moveBoard2 = useCallback((direction: string) => {
-    setBoard2(prev => {
-      const result = moveBoard(prev, direction);
-      setScore2(s => s + result.score);
-      return result.board;
-    });
-  }, []);
+  // Listen to opponent's board and score
+  useEffect(() => {
+    const opponent = player === 1 ? 2 : 1;
+    const boardRef = ref(database, `games/${gameId}/player${opponent}/board`);
+    const scoreRef = ref(database, `games/${gameId}/player${opponent}/score`);
 
+    const unsubscribeBoard = onValue(boardRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setBoard1(prev => opponent === 1 ? data : prev);
+        setBoard2(prev => opponent === 2 ? data : prev);
+      }
+    });
+
+    const unsubscribeScore = onValue(scoreRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data !== null) {
+        setScore1(prev => opponent === 1 ? data : prev);
+        setScore2(prev => opponent === 2 ? data : prev);
+      }
+    });
+
+    return () => {
+      unsubscribeBoard();
+      unsubscribeScore();
+    };
+  }, [player, gameId]);
+
+  const moveMyBoard = useCallback((direction: string) => {
+    const myBoard = player === 1 ? board1 : board2;
+    const result = moveBoard(myBoard, direction);
+    if (result.score > 0 || JSON.stringify(result.board) !== JSON.stringify(myBoard)) {
+      // Update Firebase
+      set(ref(database, `games/${gameId}/player${player}/board`), result.board);
+      set(ref(database, `games/${gameId}/player${player}/score`), (player === 1 ? score1 : score2) + result.score);
+      // Update local
+      if (player === 1) {
+        setBoard1(result.board);
+        setScore1(s => s + result.score);
+      } else {
+        setBoard2(result.board);
+        setScore2(s => s + result.score);
+      }
+    }
+  }, [player, board1, board2, score1, score2, gameId]);
+
+  // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Player 1: Arrow keys
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        moveBoard1('up');
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        moveBoard1('down');
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        moveBoard1('left');
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        moveBoard1('right');
-      }
-      // Player 2: WASD
-      else if (e.key === 'w' || e.key === 'W') {
-        e.preventDefault();
-        moveBoard2('up');
-      } else if (e.key === 's' || e.key === 'S') {
-        e.preventDefault();
-        moveBoard2('down');
-      } else if (e.key === 'a' || e.key === 'A') {
-        e.preventDefault();
-        moveBoard2('left');
-      } else if (e.key === 'd' || e.key === 'D') {
-        e.preventDefault();
-        moveBoard2('right');
+      if (player === 1) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          moveMyBoard('up');
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          moveMyBoard('down');
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          moveMyBoard('left');
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          moveMyBoard('right');
+        }
+      } else {
+        if (e.key === 'w' || e.key === 'W') {
+          e.preventDefault();
+          moveMyBoard('up');
+        } else if (e.key === 's' || e.key === 'S') {
+          e.preventDefault();
+          moveMyBoard('down');
+        } else if (e.key === 'a' || e.key === 'A') {
+          e.preventDefault();
+          moveMyBoard('left');
+        } else if (e.key === 'd' || e.key === 'D') {
+          e.preventDefault();
+          moveMyBoard('right');
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [moveBoard1, moveBoard2]);
+  }, [player, moveMyBoard]);
 
   return (
     <div className="game">
-      <h1>Multiplayer 2048</h1>
+      <h1>Multiplayer 2048 - Player {player}</h1>
       <div className="scores">
         <div className="score">Player 1 Score: {score1}</div>
         <div className="score">Player 2 Score: {score2}</div>
       </div>
-      <p>Player 1: Arrow Keys or Touch on Board | Player 2: WASD Keys or Touch on Board</p>
+      <p>Controls: {player === 1 ? 'Arrow Keys' : 'WASD Keys'} or Touch on Your Board v1</p>
       <div className="boards">
         <div className="board-wrapper">
           <h2>Player 1</h2>
-          <Board board={board1} onMove={moveBoard1} />
+          <Board board={board1} onMove={player === 1 ? moveMyBoard : undefined} />
         </div>
         <div className="board-wrapper">
           <h2>Player 2</h2>
-          <Board board={board2} onMove={moveBoard2} />
+          <Board board={board2} onMove={player === 2 ? moveMyBoard : undefined} />
         </div>
       </div>
     </div>
