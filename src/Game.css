@@ -1,3 +1,10 @@
+.game {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
 .scores {
   display: flex;
   justify-content: space-around;
@@ -21,23 +28,6 @@ body.dark .score {
   display: flex;
   gap: 40px;
   justify-content: center;
-}
-
-@media (max-width: 768px) {
-  .boards {
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  .cell {
-    width: 60px;
-    height: 60px;
-    font-size: 18px;
-  }
-
-  .cell-128, .cell-256, .cell-512, .cell-1024, .cell-2048 {
-    font-size: 14px;
-  }
 }
 
 .board-wrapper {
@@ -87,3 +77,20 @@ body.dark .score {
 .cell-512 { background-color: #edc850; color: #f9f6f2; font-size: 20px; }
 .cell-1024 { background-color: #edc53f; color: #f9f6f2; font-size: 18px; }
 .cell-2048 { background-color: #edc22e; color: #f9f6f2; font-size: 18px; }
+
+@media (max-width: 768px) {
+  .boards {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .cell {
+    width: 60px;
+    height: 60px;
+    font-size: 18px;
+  }
+
+  .cell-128, .cell-256, .cell-512, .cell-1024, .cell-2048 {
+    font-size: 14px;
+  }
+}
