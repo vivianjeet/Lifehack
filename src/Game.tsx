@@ -181,7 +181,7 @@ const Game: React.FC = () => {
       }
     });
     return () => unsubscribeReset();
-  }, [resetTrigger, gameId]);
+  }, [resetTrigger, player, gameId]);
 
   const handleReset = () => {
     const newResetTrigger = Date.now(); // Use timestamp as unique trigger
