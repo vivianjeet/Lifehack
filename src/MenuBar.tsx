@@ -15,11 +15,9 @@ const MenuBar: React.FC<MenuBarProps> = ({ toggleTheme, theme }) => {
   return (
     <nav className="menu-bar">
       <div className="menu-left">
-        {location.pathname === '/' ? (
-          <Link to="/naradmuni/alpha/privacy">Privacy Policy</Link>
-        ) : (
-          <Link to="/">Home</Link>
-        )}
+        <Link to="/">Home</Link>
+        <Link to="/game">Game</Link>
+        {location.pathname === '/' && <Link to="/naradmuni/alpha/privacy">Privacy Policy</Link>}
       </div>
       <div className="menu-right">
         <button onClick={toggleTheme} className="theme-toggle-button">

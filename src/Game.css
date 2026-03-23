@@ -1,0 +1,89 @@
+.scores {
+  display: flex;
+  justify-content: space-around;
+  margin: 10px 0;
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.score {
+  padding: 5px 10px;
+  background-color: #eee;
+  border-radius: 5px;
+}
+
+body.dark .score {
+  background-color: #444;
+  color: #fff;
+}
+
+.boards {
+  display: flex;
+  gap: 40px;
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .boards {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .cell {
+    width: 60px;
+    height: 60px;
+    font-size: 18px;
+  }
+
+  .cell-128, .cell-256, .cell-512, .cell-1024, .cell-2048 {
+    font-size: 14px;
+  }
+}
+
+.board-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.board-wrapper h2 {
+  margin-bottom: 10px;
+}
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  background-color: #bbada0;
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.row {
+  display: contents;
+}
+
+.cell {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 24px;
+  font-weight: bold;
+  border-radius: 6px;
+  background-color: #cdc1b4;
+  color: #776e65;
+}
+
+.cell-2 { background-color: #eee4da; }
+.cell-4 { background-color: #ede0c8; }
+.cell-8 { background-color: #f2b179; color: #f9f6f2; }
+.cell-16 { background-color: #f59563; color: #f9f6f2; }
+.cell-32 { background-color: #f67c5f; color: #f9f6f2; }
+.cell-64 { background-color: #f65e3b; color: #f9f6f2; }
+.cell-128 { background-color: #edcf72; color: #f9f6f2; font-size: 20px; }
+.cell-256 { background-color: #edcc61; color: #f9f6f2; font-size: 20px; }
+.cell-512 { background-color: #edc850; color: #f9f6f2; font-size: 20px; }
+.cell-1024 { background-color: #edc53f; color: #f9f6f2; font-size: 18px; }
+.cell-2048 { background-color: #edc22e; color: #f9f6f2; font-size: 18px; }

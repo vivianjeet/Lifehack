@@ -2,6 +2,7 @@ import React, { useContext, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import MenAtWork from './MenAtWork';
 import PrivacyPolicy from './PrivacyPolicy';
+import Game from './Game';
 import MenuBar from './MenuBar';
 import { ThemeContext } from './ThemeContext';
 import './App.css';
@@ -21,6 +22,7 @@ function App() {
           <Routes>
             <Route path="/" element={<MenAtWork />} />
             <Route path="/naradmuni/alpha/privacy" element={<PrivacyPolicy />} />
+            <Route path="/game" element={<Game />} />
           </Routes>
         </main>
       </div>
