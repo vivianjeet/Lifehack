@@ -155,14 +155,42 @@ const Game: React.FC = () => {
   const searchParams = new URLSearchParams(location.search);
   const player = searchParams.get('player') === '2' ? 2 : 1;
 
-  const [board1, setBoard1] = useState<number[][]>(initialBoard);
-  const [board2, setBoard2] = useState<number[][]>(initialBoard);
+  const [board1, setBoard1] = useState<number[][]>([]);
+  const [board2, setBoard2] = useState<number[][]>([]);
   const [score1, setScore1] = useState<number>(0);
   const [score2, setScore2] = useState<number>(0);
 
   const [resetTrigger, setResetTrigger] = useState<number>(0);
 
   const gameId = 'game1'; // Fixed for demo
+
+  // Initialize and sync initial game state
+  useEffect(() => {
+    const initializeGame = async () => {
+      const initial = initialBoard();
+      
+      // Set local state
+      if (player === 1) {
+        setBoard1(initial);
+        setScore1(0);
+      } else {
+        setBoard2(initial);
+        setScore2(0);
+      }
+      
+      // Push initial state to Firebase
+      console.log(`Player ${player} initializing game state`);
+      try {
+        await set(ref(database, `games/${gameId}/player${player}/board`), initial);
+        await set(ref(database, `games/${gameId}/player${player}/score`), 0);
+        console.log('Initial state pushed to Firebase');
+      } catch (error) {
+        console.error('Error initializing game state:', error);
+      }
+    };
+
+    initializeGame();
+  }, [player, gameId]); // Only run once on mount
 
   // Listen to reset trigger
   useEffect(() => {
