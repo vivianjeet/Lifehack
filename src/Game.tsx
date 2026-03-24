@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ref, onValue, set, update } from 'firebase/database';
+import { ref, onValue, set, update, get } from 'firebase/database';
 import { database } from './firebase';
 import './Game.css';
 
@@ -164,28 +164,58 @@ const Game: React.FC = () => {
 
   const gameId = 'game1'; // Fixed for demo
 
-  // Initialize and sync initial game state
+  // Initialize and sync game state - load from DB if exists, otherwise create new
   useEffect(() => {
     const initializeGame = async () => {
-      const initial = initialBoard();
-      
-      // Set local state
-      if (player === 1) {
-        setBoard1(initial);
-        setScore1(0);
-      } else {
-        setBoard2(initial);
-        setScore2(0);
-      }
-      
-      // Push initial state to Firebase
-      console.log(`Player ${player} initializing game state`);
       try {
-        await set(ref(database, `games/${gameId}/player${player}/board`), initial);
-        await set(ref(database, `games/${gameId}/player${player}/score`), 0);
-        console.log('Initial state pushed to Firebase');
+        // Check if we already have state in Firebase
+        const boardRef = ref(database, `games/${gameId}/player${player}/board`);
+        const scoreRef = ref(database, `games/${gameId}/player${player}/score`);
+        
+        const [boardSnapshot, scoreSnapshot] = await Promise.all([
+          get(boardRef),
+          get(scoreRef)
+        ]);
+        
+        let board: number[][];
+        let score: number;
+        
+        if (boardSnapshot.exists() && scoreSnapshot.exists()) {
+          // Load existing state from Firebase
+          board = boardSnapshot.val();
+          score = scoreSnapshot.val();
+          console.log(`Player ${player} loaded existing state from Firebase`);
+        } else {
+          // Create new initial state
+          board = initialBoard();
+          score = 0;
+          
+          // Push initial state to Firebase
+          await set(boardRef, board);
+          await set(scoreRef, score);
+          console.log(`Player ${player} created new initial state`);
+        }
+        
+        // Set local state
+        if (player === 1) {
+          setBoard1(board);
+          setScore1(score);
+        } else {
+          setBoard2(board);
+          setScore2(score);
+        }
+        
       } catch (error) {
         console.error('Error initializing game state:', error);
+        // Fallback to new board if Firebase fails
+        const fallbackBoard = initialBoard();
+        if (player === 1) {
+          setBoard1(fallbackBoard);
+          setScore1(0);
+        } else {
+          setBoard2(fallbackBoard);
+          setScore2(0);
+        }
       }
     };
 
