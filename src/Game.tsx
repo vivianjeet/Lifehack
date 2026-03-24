@@ -183,6 +183,8 @@ const Game: React.FC = () => {
   const [score2, setScore2] = useState<number>(0);
   const [gameOver1, setGameOver1] = useState<boolean>(false);
   const [gameOver2, setGameOver2] = useState<boolean>(false);
+  const [resetRequest1, setResetRequest1] = useState<boolean>(false);
+  const [resetRequest2, setResetRequest2] = useState<boolean>(false);
 
   const [resetTrigger, setResetTrigger] = useState<number>(0);
 
@@ -195,28 +197,40 @@ const Game: React.FC = () => {
         // Check if we already have state in Firebase
         const boardRef = ref(database, `games/${gameId}/player${player}/board`);
         const scoreRef = ref(database, `games/${gameId}/player${player}/score`);
+        const gameOverRef = ref(database, `games/${gameId}/player${player}/gameOver`);
+        const resetRequestRef = ref(database, `games/${gameId}/player${player}/resetRequest`);
         
-        const [boardSnapshot, scoreSnapshot] = await Promise.all([
+        const [boardSnapshot, scoreSnapshot, gameOverSnapshot, resetRequestSnapshot] = await Promise.all([
           get(boardRef),
-          get(scoreRef)
+          get(scoreRef),
+          get(gameOverRef),
+          get(resetRequestRef)
         ]);
         
         let board: number[][];
         let score: number;
+        let gameOver: boolean;
+        let resetRequest: boolean;
         
         if (boardSnapshot.exists() && scoreSnapshot.exists()) {
           // Load existing state from Firebase
           board = boardSnapshot.val();
           score = scoreSnapshot.val();
+          gameOver = gameOverSnapshot.exists() ? gameOverSnapshot.val() : false;
+          resetRequest = resetRequestSnapshot.exists() ? resetRequestSnapshot.val() : false;
           console.log(`Player ${player} loaded existing state from Firebase`);
         } else {
           // Create new initial state
           board = initialBoard();
           score = 0;
+          gameOver = false;
+          resetRequest = false;
           
           // Push initial state to Firebase
           await set(boardRef, board);
           await set(scoreRef, score);
+          await set(gameOverRef, gameOver);
+          await set(resetRequestRef, resetRequest);
           console.log(`Player ${player} created new initial state`);
         }
         
@@ -224,11 +238,13 @@ const Game: React.FC = () => {
         if (player === 1) {
           setBoard1(board);
           setScore1(score);
-          setGameOver1(false);
+          setGameOver1(gameOver);
+          setResetRequest1(resetRequest);
         } else {
           setBoard2(board);
           setScore2(score);
-          setGameOver2(false);
+          setGameOver2(gameOver);
+          setResetRequest2(resetRequest);
         }
         
       } catch (error) {
@@ -239,10 +255,12 @@ const Game: React.FC = () => {
           setBoard1(fallbackBoard);
           setScore1(0);
           setGameOver1(false);
+          setResetRequest1(false);
         } else {
           setBoard2(fallbackBoard);
           setScore2(0);
           setGameOver2(false);
+          setResetRequest2(false);
         }
       }
     };
@@ -265,43 +283,58 @@ const Game: React.FC = () => {
         setScore2(0);
         setGameOver1(false);
         setGameOver2(false);
+        setResetRequest1(false);
+        setResetRequest2(false);
         setResetTrigger(data);
       }
     });
     return () => unsubscribeReset();
   }, [resetTrigger, player, gameId]);
 
-  const handleReset = () => {
-    const newResetTrigger = Date.now(); // Use timestamp as unique trigger
-    const initial = initialBoard();
-    console.log(`Player ${player} initiating reset with trigger:`, newResetTrigger);
+  const handleReset = async () => {
+    const opponentResetRequest = player === 1 ? resetRequest2 : resetRequest1;
     
-    // Reset both players' data in DB
-    const updates = {
-      [`games/${gameId}/player1/board`]: initial,
-      [`games/${gameId}/player1/score`]: 0,
-      [`games/${gameId}/player2/board`]: initial,
-      [`games/${gameId}/player2/score`]: 0,
-      [`games/${gameId}/reset`]: newResetTrigger
-    };
+    // Set reset request for current player
+    if (player === 1) {
+      setResetRequest1(true);
+    } else {
+      setResetRequest2(true);
+    }
     
-    update(ref(database), updates)
-      .then(() => console.log('Game reset successfully in DB'))
-      .catch((error) => console.error('Error resetting game:', error));
+    // Update Firebase
+    await set(ref(database, `games/${gameId}/player${player}/resetRequest`), true);
     
-    // Also reset local state immediately
-    setBoard1(initial);
-    setBoard2(initial);
-    setScore1(0);
-    setScore2(0);
-    setGameOver1(false);
-    setGameOver2(false);
-    setResetTrigger(newResetTrigger);
+    // Check if both players have requested reset
+    if (opponentResetRequest) {
+      // Both players have requested reset, perform actual reset
+      const newResetTrigger = Date.now();
+      const initial = initialBoard();
+      console.log(`Both players requested reset, performing reset with trigger:`, newResetTrigger);
+      
+      const updates = {
+        [`games/${gameId}/player1/board`]: initial,
+        [`games/${gameId}/player1/score`]: 0,
+        [`games/${gameId}/player1/gameOver`]: false,
+        [`games/${gameId}/player1/resetRequest`]: false,
+        [`games/${gameId}/player2/board`]: initial,
+        [`games/${gameId}/player2/score`]: 0,
+        [`games/${gameId}/player2/gameOver`]: false,
+        [`games/${gameId}/player2/resetRequest`]: false,
+        [`games/${gameId}/reset`]: newResetTrigger
+      };
+      
+      await update(ref(database), updates);
+      console.log('Game reset successfully in DB');
+    } else {
+      console.log(`Player ${player} requested reset, waiting for opponent`);
+    }
   };
   useEffect(() => {
     const opponent = player === 1 ? 2 : 1;
     const boardRef = ref(database, `games/${gameId}/player${opponent}/board`);
     const scoreRef = ref(database, `games/${gameId}/player${opponent}/score`);
+    const gameOverRef = ref(database, `games/${gameId}/player${opponent}/gameOver`);
+    const resetRequestRef = ref(database, `games/${gameId}/player${opponent}/resetRequest`);
 
     console.log(`Player ${player} listening to opponent ${opponent}`);
 
@@ -323,9 +356,29 @@ const Game: React.FC = () => {
       }
     });
 
+    const unsubscribeGameOver = onValue(gameOverRef, (snapshot) => {
+      const data = snapshot.val();
+      console.log(`Player ${player} received game over update:`, data);
+      if (data !== null) {
+        setGameOver1(prev => opponent === 1 ? data : prev);
+        setGameOver2(prev => opponent === 2 ? data : prev);
+      }
+    });
+
+    const unsubscribeResetRequest = onValue(resetRequestRef, (snapshot) => {
+      const data = snapshot.val();
+      console.log(`Player ${player} received reset request update:`, data);
+      if (data !== null) {
+        setResetRequest1(prev => opponent === 1 ? data : prev);
+        setResetRequest2(prev => opponent === 2 ? data : prev);
+      }
+    });
+
     return () => {
       unsubscribeBoard();
       unsubscribeScore();
+      unsubscribeGameOver();
+      unsubscribeResetRequest();
     };
   }, [player, gameId]);
 
@@ -348,6 +401,9 @@ const Game: React.FC = () => {
         // Check for game over
         if (isGameOver(result.board)) {
           setGameOver1(true);
+          set(ref(database, `games/${gameId}/player${player}/gameOver`), true)
+            .then(() => console.log('Game over updated successfully'))
+            .catch((error) => console.error('Error updating game over:', error));
         }
       } else {
         setBoard2(result.board);
@@ -355,6 +411,9 @@ const Game: React.FC = () => {
         // Check for game over
         if (isGameOver(result.board)) {
           setGameOver2(true);
+          set(ref(database, `games/${gameId}/player${player}/gameOver`), true)
+            .then(() => console.log('Game over updated successfully'))
+            .catch((error) => console.error('Error updating game over:', error));
         }
       }
     }
@@ -405,7 +464,26 @@ const Game: React.FC = () => {
         <div className="score">Player 1 Score: {score1}</div>
         <div className="score">Player 2 Score: {score2}</div>
       </div>
-      <button onClick={handleReset} className="reset-button">Reset Game</button>
+      
+      {(() => {
+        const myResetRequest = player === 1 ? resetRequest1 : resetRequest2;
+        const opponentResetRequest = player === 1 ? resetRequest2 : resetRequest1;
+        const opponent = player === 1 ? 2 : 1;
+        
+        if (myResetRequest && !opponentResetRequest) {
+          return <div className="waiting-message">Waiting for Player {opponent} to reset...</div>;
+        }
+        return null;
+      })()}
+      
+      <button 
+        onClick={handleReset} 
+        className="reset-button"
+        disabled={(player === 1 ? resetRequest1 : resetRequest2)}
+      >
+        {(player === 1 ? resetRequest1 : resetRequest2) ? 'Reset Requested' : 'Reset Game'}
+      </button>
+      
       <p>Controls: {player === 1 ? 'Arrow Keys' : 'WASD Keys'} or Touch on Your Board v1</p>
       <div className="boards">
         <div className="board-wrapper">
