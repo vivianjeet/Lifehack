@@ -472,6 +472,8 @@ const Game: React.FC = () => {
         
         if (myResetRequest && !opponentResetRequest) {
           return <div className="waiting-message">Waiting for Player {opponent} to reset...</div>;
+        } else if (!myResetRequest && opponentResetRequest) {
+          return <div className="opponent-reset-message">Player {opponent} has requested to reset the game. Click reset to confirm.</div>;
         }
         return null;
       })()}
