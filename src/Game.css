@@ -109,3 +109,24 @@ body.dark .score {
     font-size: 14px;
   }
 }
+
+.board-container {
+  position: relative;
+}
+
+.game-over {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(238, 228, 218, 0.9);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 36px;
+  font-weight: bold;
+  color: #776e65;
+  border-radius: 10px;
+  z-index: 10;
+}

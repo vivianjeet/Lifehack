@@ -103,6 +103,28 @@ const moveBoard = (board: number[][], direction: string) => {
   return result;
 };
 
+const isGameOver = (board: number[][]) => {
+  // Check if there are any empty cells
+  for (let i = 0; i < SIZE; i++) {
+    for (let j = 0; j < SIZE; j++) {
+      if (board[i][j] === 0) return false;
+    }
+  }
+  
+  // Check if any adjacent cells can be merged
+  for (let i = 0; i < SIZE; i++) {
+    for (let j = 0; j < SIZE; j++) {
+      const current = board[i][j];
+      // Check right neighbor
+      if (j < SIZE - 1 && current === board[i][j + 1]) return false;
+      // Check bottom neighbor
+      if (i < SIZE - 1 && current === board[i + 1][j]) return false;
+    }
+  }
+  
+  return true;
+};
+
 const Board: React.FC<{ board: number[][], onMove?: (direction: string) => void }> = ({ board, onMove }) => {
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
 
@@ -159,6 +181,8 @@ const Game: React.FC = () => {
   const [board2, setBoard2] = useState<number[][]>([]);
   const [score1, setScore1] = useState<number>(0);
   const [score2, setScore2] = useState<number>(0);
+  const [gameOver1, setGameOver1] = useState<boolean>(false);
+  const [gameOver2, setGameOver2] = useState<boolean>(false);
 
   const [resetTrigger, setResetTrigger] = useState<number>(0);
 
@@ -200,9 +224,11 @@ const Game: React.FC = () => {
         if (player === 1) {
           setBoard1(board);
           setScore1(score);
+          setGameOver1(false);
         } else {
           setBoard2(board);
           setScore2(score);
+          setGameOver2(false);
         }
         
       } catch (error) {
@@ -212,9 +238,11 @@ const Game: React.FC = () => {
         if (player === 1) {
           setBoard1(fallbackBoard);
           setScore1(0);
+          setGameOver1(false);
         } else {
           setBoard2(fallbackBoard);
           setScore2(0);
+          setGameOver2(false);
         }
       }
     };
@@ -235,6 +263,8 @@ const Game: React.FC = () => {
         setBoard2(initial);
         setScore1(0);
         setScore2(0);
+        setGameOver1(false);
+        setGameOver2(false);
         setResetTrigger(data);
       }
     });
@@ -264,6 +294,8 @@ const Game: React.FC = () => {
     setBoard2(initial);
     setScore1(0);
     setScore2(0);
+    setGameOver1(false);
+    setGameOver2(false);
     setResetTrigger(newResetTrigger);
   };
   useEffect(() => {
@@ -313,9 +345,17 @@ const Game: React.FC = () => {
       if (player === 1) {
         setBoard1(result.board);
         setScore1(s => s + result.score);
+        // Check for game over
+        if (isGameOver(result.board)) {
+          setGameOver1(true);
+        }
       } else {
         setBoard2(result.board);
         setScore2(s => s + result.score);
+        // Check for game over
+        if (isGameOver(result.board)) {
+          setGameOver2(true);
+        }
       }
     }
   }, [player, board1, board2, score1, score2, gameId]);
@@ -370,11 +410,17 @@ const Game: React.FC = () => {
       <div className="boards">
         <div className="board-wrapper">
           <h2>Player 1</h2>
-          <Board board={board1} onMove={player === 1 ? moveMyBoard : undefined} />
+          <div className="board-container">
+            <Board board={board1} onMove={player === 1 && !gameOver1 ? moveMyBoard : undefined} />
+            {gameOver1 && <div className="game-over">Game Over</div>}
+          </div>
         </div>
         <div className="board-wrapper">
           <h2>Player 2</h2>
-          <Board board={board2} onMove={player === 2 ? moveMyBoard : undefined} />
+          <div className="board-container">
+            <Board board={board2} onMove={player === 2 && !gameOver2 ? moveMyBoard : undefined} />
+            {gameOver2 && <div className="game-over">Game Over</div>}
+          </div>
         </div>
       </div>
     </div>
