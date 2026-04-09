@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { ref, onValue, set, update, get } from 'firebase/database';
 import { database } from './firebase';
@@ -186,6 +186,24 @@ const Game: React.FC = () => {
   const [resetRequest1, setResetRequest1] = useState<boolean>(false);
   const [resetRequest2, setResetRequest2] = useState<boolean>(false);
 
+  // Undo state: 1 undo granted for every 2500 points earned, stored in Firebase.
+  const [undos1, setUndos1] = useState<number>(0);
+  const [undos2, setUndos2] = useState<number>(0);
+  const [prevBoard1, setPrevBoard1] = useState<number[][] | null>(null);
+  const [prevBoard2, setPrevBoard2] = useState<number[][] | null>(null);
+  const [prevScore1, setPrevScore1] = useState<number | null>(null);
+  const [prevScore2, setPrevScore2] = useState<number | null>(null);
+
+  // Tracks whether each player has ever crossed 2048 (persisted in Firebase).
+  const [reached2048_1, setReached2048_1] = useState<boolean>(false);
+  const [reached2048_2, setReached2048_2] = useState<boolean>(false);
+
+  // Transient local flags that drive the one-shot 2048 celebration animation.
+  const [celebrate1, setCelebrate1] = useState<boolean>(false);
+  const [celebrate2, setCelebrate2] = useState<boolean>(false);
+  const prevReached1Ref = useRef<boolean>(false);
+  const prevReached2Ref = useRef<boolean>(false);
+
   const [resetTrigger, setResetTrigger] = useState<number>(0);
 
   const gameId = 'game1'; // Fixed for demo
@@ -199,25 +217,50 @@ const Game: React.FC = () => {
         const scoreRef = ref(database, `games/${gameId}/player${player}/score`);
         const gameOverRef = ref(database, `games/${gameId}/player${player}/gameOver`);
         const resetRequestRef = ref(database, `games/${gameId}/player${player}/resetRequest`);
-        
-        const [boardSnapshot, scoreSnapshot, gameOverSnapshot, resetRequestSnapshot] = await Promise.all([
+        const undosRef = ref(database, `games/${gameId}/player${player}/undos`);
+        const prevBoardRef = ref(database, `games/${gameId}/player${player}/prevBoard`);
+        const prevScoreRef = ref(database, `games/${gameId}/player${player}/prevScore`);
+        const reached2048Ref = ref(database, `games/${gameId}/player${player}/reached2048`);
+
+        const [
+          boardSnapshot,
+          scoreSnapshot,
+          gameOverSnapshot,
+          resetRequestSnapshot,
+          undosSnapshot,
+          prevBoardSnapshot,
+          prevScoreSnapshot,
+          reached2048Snapshot,
+        ] = await Promise.all([
           get(boardRef),
           get(scoreRef),
           get(gameOverRef),
-          get(resetRequestRef)
+          get(resetRequestRef),
+          get(undosRef),
+          get(prevBoardRef),
+          get(prevScoreRef),
+          get(reached2048Ref),
         ]);
-        
+
         let board: number[][];
         let score: number;
         let gameOver: boolean;
         let resetRequest: boolean;
-        
+        let undos: number;
+        let prevBoard: number[][] | null;
+        let prevScore: number | null;
+        let reached2048: boolean;
+
         if (boardSnapshot.exists() && scoreSnapshot.exists()) {
           // Load existing state from Firebase
           board = boardSnapshot.val();
           score = scoreSnapshot.val();
           gameOver = gameOverSnapshot.exists() ? gameOverSnapshot.val() : false;
           resetRequest = resetRequestSnapshot.exists() ? resetRequestSnapshot.val() : false;
+          undos = undosSnapshot.exists() ? undosSnapshot.val() : 0;
+          prevBoard = prevBoardSnapshot.exists() ? prevBoardSnapshot.val() : null;
+          prevScore = prevScoreSnapshot.exists() ? prevScoreSnapshot.val() : null;
+          reached2048 = reached2048Snapshot.exists() ? reached2048Snapshot.val() : false;
           console.log(`Player ${player} loaded existing state from Firebase`);
         } else {
           // Create new initial state
@@ -225,26 +268,45 @@ const Game: React.FC = () => {
           score = 0;
           gameOver = false;
           resetRequest = false;
-          
+          undos = 0;
+          prevBoard = null;
+          prevScore = null;
+          reached2048 = false;
+
           // Push initial state to Firebase
           await set(boardRef, board);
           await set(scoreRef, score);
           await set(gameOverRef, gameOver);
           await set(resetRequestRef, resetRequest);
+          await set(undosRef, undos);
+          await set(reached2048Ref, reached2048);
           console.log(`Player ${player} created new initial state`);
         }
-        
+
+        // Seed the "previously seen" ref so we don't trigger a celebration
+        // animation for a 2048 that was already on the board before refresh.
+        if (player === 1) prevReached1Ref.current = reached2048;
+        else prevReached2Ref.current = reached2048;
+
         // Set local state
         if (player === 1) {
           setBoard1(board);
           setScore1(score);
           setGameOver1(gameOver);
           setResetRequest1(resetRequest);
+          setUndos1(undos);
+          setPrevBoard1(prevBoard);
+          setPrevScore1(prevScore);
+          setReached2048_1(reached2048);
         } else {
           setBoard2(board);
           setScore2(score);
           setGameOver2(gameOver);
           setResetRequest2(resetRequest);
+          setUndos2(undos);
+          setPrevBoard2(prevBoard);
+          setPrevScore2(prevScore);
+          setReached2048_2(reached2048);
         }
         
       } catch (error) {
@@ -256,11 +318,19 @@ const Game: React.FC = () => {
           setScore1(0);
           setGameOver1(false);
           setResetRequest1(false);
+          setUndos1(0);
+          setPrevBoard1(null);
+          setPrevScore1(null);
+          setReached2048_1(false);
         } else {
           setBoard2(fallbackBoard);
           setScore2(0);
           setGameOver2(false);
           setResetRequest2(false);
+          setUndos2(0);
+          setPrevBoard2(null);
+          setPrevScore2(null);
+          setReached2048_2(false);
         }
       }
     };
@@ -285,6 +355,18 @@ const Game: React.FC = () => {
         setGameOver2(false);
         setResetRequest1(false);
         setResetRequest2(false);
+        setUndos1(0);
+        setUndos2(0);
+        setPrevBoard1(null);
+        setPrevBoard2(null);
+        setPrevScore1(null);
+        setPrevScore2(null);
+        setReached2048_1(false);
+        setReached2048_2(false);
+        prevReached1Ref.current = false;
+        prevReached2Ref.current = false;
+        setCelebrate1(false);
+        setCelebrate2(false);
         setResetTrigger(data);
       }
     });
@@ -316,10 +398,18 @@ const Game: React.FC = () => {
         [`games/${gameId}/player1/score`]: 0,
         [`games/${gameId}/player1/gameOver`]: false,
         [`games/${gameId}/player1/resetRequest`]: false,
+        [`games/${gameId}/player1/undos`]: 0,
+        [`games/${gameId}/player1/prevBoard`]: null,
+        [`games/${gameId}/player1/prevScore`]: null,
+        [`games/${gameId}/player1/reached2048`]: false,
         [`games/${gameId}/player2/board`]: initial,
         [`games/${gameId}/player2/score`]: 0,
         [`games/${gameId}/player2/gameOver`]: false,
         [`games/${gameId}/player2/resetRequest`]: false,
+        [`games/${gameId}/player2/undos`]: 0,
+        [`games/${gameId}/player2/prevBoard`]: null,
+        [`games/${gameId}/player2/prevScore`]: null,
+        [`games/${gameId}/player2/reached2048`]: false,
         [`games/${gameId}/reset`]: newResetTrigger
       };
       
@@ -335,6 +425,8 @@ const Game: React.FC = () => {
     const scoreRef = ref(database, `games/${gameId}/player${opponent}/score`);
     const gameOverRef = ref(database, `games/${gameId}/player${opponent}/gameOver`);
     const resetRequestRef = ref(database, `games/${gameId}/player${opponent}/resetRequest`);
+    const undosRef = ref(database, `games/${gameId}/player${opponent}/undos`);
+    const reached2048Ref = ref(database, `games/${gameId}/player${opponent}/reached2048`);
 
     console.log(`Player ${player} listening to opponent ${opponent}`);
 
@@ -374,50 +466,185 @@ const Game: React.FC = () => {
       }
     });
 
+    const unsubscribeUndos = onValue(undosRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data !== null) {
+        setUndos1(prev => opponent === 1 ? data : prev);
+        setUndos2(prev => opponent === 2 ? data : prev);
+      }
+    });
+
+    const unsubscribeReached2048 = onValue(reached2048Ref, (snapshot) => {
+      const data = snapshot.val() === true;
+      setReached2048_1(prev => opponent === 1 ? data : prev);
+      setReached2048_2(prev => opponent === 2 ? data : prev);
+    });
+
     return () => {
       unsubscribeBoard();
       unsubscribeScore();
       unsubscribeGameOver();
       unsubscribeResetRequest();
+      unsubscribeUndos();
+      unsubscribeReached2048();
     };
   }, [player, gameId]);
 
   const moveMyBoard = useCallback((direction: string) => {
     const myBoard = player === 1 ? board1 : board2;
+    const myScore = player === 1 ? score1 : score2;
+    const myUndos = player === 1 ? undos1 : undos2;
+    const myReached2048 = player === 1 ? reached2048_1 : reached2048_2;
     const result = moveBoard(myBoard, direction);
-    if (result.score > 0 || JSON.stringify(result.board) !== JSON.stringify(myBoard)) {
+    const boardChanged = JSON.stringify(result.board) !== JSON.stringify(myBoard);
+    if (result.score > 0 || boardChanged) {
+      const newScore = myScore + result.score;
+      // 1 undo granted per 2500 points crossed by this move (can be multiple).
+      const earnedUndos =
+        Math.floor(newScore / 2500) - Math.floor(myScore / 2500);
+      const newUndos = myUndos + earnedUndos;
+      const boardHas2048 = result.board.some(row => row.some(cell => cell >= 2048));
+      const firstReached2048 = boardHas2048 && !myReached2048;
+
       // Update Firebase
       console.log(`Player ${player} moving ${direction}, updating DB`);
-      set(ref(database, `games/${gameId}/player${player}/board`), result.board)
+      const playerPath = `games/${gameId}/player${player}`;
+      // Save pre-move snapshot so the player can undo this move.
+      set(ref(database, `${playerPath}/prevBoard`), myBoard)
+        .catch((error) => console.error('Error saving prev board:', error));
+      set(ref(database, `${playerPath}/prevScore`), myScore)
+        .catch((error) => console.error('Error saving prev score:', error));
+      set(ref(database, `${playerPath}/board`), result.board)
         .then(() => console.log('Board updated successfully'))
         .catch((error) => console.error('Error updating board:', error));
-      set(ref(database, `games/${gameId}/player${player}/score`), (player === 1 ? score1 : score2) + result.score)
+      set(ref(database, `${playerPath}/score`), newScore)
         .then(() => console.log('Score updated successfully'))
         .catch((error) => console.error('Error updating score:', error));
+      if (earnedUndos > 0) {
+        set(ref(database, `${playerPath}/undos`), newUndos)
+          .catch((error) => console.error('Error updating undos:', error));
+      }
+      if (firstReached2048) {
+        set(ref(database, `${playerPath}/reached2048`), true)
+          .catch((error) => console.error('Error updating reached2048:', error));
+      }
+
       // Update local
       if (player === 1) {
+        setPrevBoard1(myBoard);
+        setPrevScore1(myScore);
         setBoard1(result.board);
-        setScore1(s => s + result.score);
+        setScore1(newScore);
+        if (earnedUndos > 0) setUndos1(newUndos);
+        if (firstReached2048) setReached2048_1(true);
         // Check for game over
         if (isGameOver(result.board)) {
           setGameOver1(true);
-          set(ref(database, `games/${gameId}/player${player}/gameOver`), true)
+          set(ref(database, `${playerPath}/gameOver`), true)
             .then(() => console.log('Game over updated successfully'))
             .catch((error) => console.error('Error updating game over:', error));
         }
       } else {
+        setPrevBoard2(myBoard);
+        setPrevScore2(myScore);
         setBoard2(result.board);
-        setScore2(s => s + result.score);
+        setScore2(newScore);
+        if (earnedUndos > 0) setUndos2(newUndos);
+        if (firstReached2048) setReached2048_2(true);
         // Check for game over
         if (isGameOver(result.board)) {
           setGameOver2(true);
-          set(ref(database, `games/${gameId}/player${player}/gameOver`), true)
+          set(ref(database, `${playerPath}/gameOver`), true)
             .then(() => console.log('Game over updated successfully'))
             .catch((error) => console.error('Error updating game over:', error));
         }
       }
     }
-  }, [player, board1, board2, score1, score2, gameId]);
+  }, [
+    player,
+    board1,
+    board2,
+    score1,
+    score2,
+    undos1,
+    undos2,
+    reached2048_1,
+    reached2048_2,
+    gameId,
+  ]);
+
+  const handleUndo = useCallback(() => {
+    const myPrevBoard = player === 1 ? prevBoard1 : prevBoard2;
+    const myPrevScore = player === 1 ? prevScore1 : prevScore2;
+    const myUndos = player === 1 ? undos1 : undos2;
+    if (!myPrevBoard || myPrevScore === null || myUndos <= 0) return;
+
+    const newUndos = myUndos - 1;
+    const playerPath = `games/${gameId}/player${player}`;
+
+    // Restore prior board/score, spend one undo, clear prev snapshot so
+    // undos can't be chained through a single saved state.
+    set(ref(database, `${playerPath}/board`), myPrevBoard)
+      .catch((error) => console.error('Error undoing board:', error));
+    set(ref(database, `${playerPath}/score`), myPrevScore)
+      .catch((error) => console.error('Error undoing score:', error));
+    set(ref(database, `${playerPath}/undos`), newUndos)
+      .catch((error) => console.error('Error updating undos:', error));
+    set(ref(database, `${playerPath}/prevBoard`), null)
+      .catch((error) => console.error('Error clearing prev board:', error));
+    set(ref(database, `${playerPath}/prevScore`), null)
+      .catch((error) => console.error('Error clearing prev score:', error));
+    set(ref(database, `${playerPath}/gameOver`), false)
+      .catch((error) => console.error('Error clearing game over:', error));
+
+    if (player === 1) {
+      setBoard1(myPrevBoard);
+      setScore1(myPrevScore);
+      setUndos1(newUndos);
+      setPrevBoard1(null);
+      setPrevScore1(null);
+      setGameOver1(false);
+    } else {
+      setBoard2(myPrevBoard);
+      setScore2(myPrevScore);
+      setUndos2(newUndos);
+      setPrevBoard2(null);
+      setPrevScore2(null);
+      setGameOver2(false);
+    }
+  }, [
+    player,
+    prevBoard1,
+    prevBoard2,
+    prevScore1,
+    prevScore2,
+    undos1,
+    undos2,
+    gameId,
+  ]);
+
+  // One-shot celebration animation whenever a player first crosses 2048.
+  // Tracked via refs so we only fire on the false→true transition, not on
+  // every unrelated re-render.
+  useEffect(() => {
+    if (reached2048_1 && !prevReached1Ref.current) {
+      setCelebrate1(true);
+      const t = setTimeout(() => setCelebrate1(false), 2500);
+      prevReached1Ref.current = true;
+      return () => clearTimeout(t);
+    }
+    prevReached1Ref.current = reached2048_1;
+  }, [reached2048_1]);
+
+  useEffect(() => {
+    if (reached2048_2 && !prevReached2Ref.current) {
+      setCelebrate2(true);
+      const t = setTimeout(() => setCelebrate2(false), 2500);
+      prevReached2Ref.current = true;
+      return () => clearTimeout(t);
+    }
+    prevReached2Ref.current = reached2048_2;
+  }, [reached2048_2]);
 
   // Keyboard controls
   useEffect(() => {
@@ -487,22 +714,61 @@ const Game: React.FC = () => {
       </button>
       
       <p>Controls: {player === 1 ? 'Arrow Keys' : 'WASD Keys'} or Touch on Your Board v1</p>
-      <div className="boards">
-        <div className="board-wrapper">
-          <h2>Player 1</h2>
-          <div className="board-container">
-            <Board board={board1} onMove={player === 1 && !gameOver1 ? moveMyBoard : undefined} />
-            {gameOver1 && <div className="game-over">Game Over</div>}
+      {(() => {
+        // Leader/trailer classes only carry meaning on the enlarged (active)
+        // board, but we attach them to both wrappers so the CSS can decide.
+        const leader = score1 > score2 ? 1 : score2 > score1 ? 2 : 0;
+        const p1Standing = leader === 1 ? 'leading' : leader === 2 ? 'trailing' : '';
+        const p2Standing = leader === 2 ? 'leading' : leader === 1 ? 'trailing' : '';
+        // When I hit 2048 it's "celebrate-self"; when my rival hits it, it's
+        // "celebrate-rival" on my view of their board.
+        const p1Celebrate = celebrate1
+          ? player === 1
+            ? 'celebrate-self'
+            : 'celebrate-rival'
+          : '';
+        const p2Celebrate = celebrate2
+          ? player === 2
+            ? 'celebrate-self'
+            : 'celebrate-rival'
+          : '';
+        return (
+          <div className="boards">
+            <div
+              className={`board-wrapper ${player === 1 ? 'active' : 'opponent'} ${p1Standing} ${p1Celebrate}`}
+            >
+              <h2>Player 1</h2>
+              <div className="board-container">
+                <Board board={board1} onMove={player === 1 && !gameOver1 ? moveMyBoard : undefined} />
+                {gameOver1 && <div className="game-over">Game Over</div>}
+              </div>
+              <button
+                className="undo-button"
+                onClick={handleUndo}
+                disabled={player !== 1 || undos1 <= 0 || !prevBoard1}
+              >
+                Undo<sub>{undos1}</sub>
+              </button>
+            </div>
+            <div
+              className={`board-wrapper ${player === 2 ? 'active' : 'opponent'} ${p2Standing} ${p2Celebrate}`}
+            >
+              <h2>Player 2</h2>
+              <div className="board-container">
+                <Board board={board2} onMove={player === 2 && !gameOver2 ? moveMyBoard : undefined} />
+                {gameOver2 && <div className="game-over">Game Over</div>}
+              </div>
+              <button
+                className="undo-button"
+                onClick={handleUndo}
+                disabled={player !== 2 || undos2 <= 0 || !prevBoard2}
+              >
+                Undo<sub>{undos2}</sub>
+              </button>
+            </div>
           </div>
-        </div>
-        <div className="board-wrapper">
-          <h2>Player 2</h2>
-          <div className="board-container">
-            <Board board={board2} onMove={player === 2 && !gameOver2 ? moveMyBoard : undefined} />
-            {gameOver2 && <div className="game-over">Game Over</div>}
-          </div>
-        </div>
-      </div>
+        );
+      })()}
     </div>
   );
 };
