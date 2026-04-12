@@ -94,10 +94,19 @@ body.dark .score {
   transition: background-color 0.4s ease, box-shadow 0.4s ease;
 }
 
-/* Undo button sits directly below its player's board. */
-.undo-button {
+/* Action buttons (undo + tile-swipe) sit directly below the player's board. */
+.action-buttons {
+  display: flex;
+  gap: 10px;
   margin-top: 12px;
-  padding: 8px 18px;
+}
+
+.undo-button,
+.swipe-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
   font-size: 16px;
   font-weight: bold;
   background-color: #3498db;
@@ -107,19 +116,55 @@ body.dark .score {
   cursor: pointer;
 }
 
-.undo-button:hover:not(:disabled) {
+.undo-button:hover:not(:disabled),
+.swipe-button:hover:not(:disabled) {
   background-color: #2980b9;
 }
 
-.undo-button:disabled {
+.undo-button:disabled,
+.swipe-button:disabled {
   background-color: #95a5a6;
   cursor: not-allowed;
   opacity: 0.7;
 }
 
-.undo-button sub {
+.undo-button sub,
+.swipe-button sub {
   font-size: 12px;
   margin-left: 2px;
+}
+
+.action-icon {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+/* When swipe mode is toggled on, highlight the button so the player knows
+   they're mid-swipe and need to pick a tile. */
+.swipe-button.active {
+  background-color: #e67e22;
+}
+
+.swipe-button.active:hover:not(:disabled) {
+  background-color: #d35400;
+}
+
+/* In swipe mode the board's tiles become tappable — override the default
+   pointer-events: none on tile-wrappers and show a hover cue. */
+.board.swipe-mode .tile-tappable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.board.swipe-mode .tile-tappable .tile {
+  box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.9);
+  transition: box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out;
+}
+
+.board.swipe-mode .tile-tappable:hover .tile {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 4px rgba(230, 126, 34, 1);
 }
 
 /* 2048 celebration: the player who reached it gets a bright pulsing
@@ -260,7 +305,7 @@ body.dark .score {
   height: var(--tile-size);
   /* Ease-out curve starts moving immediately so the slide is visible from
      the first frame, instead of easing into/out of the motion. */
-  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.13s cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
   will-change: transform;
 }
@@ -300,7 +345,7 @@ body.dark .score {
 .tile-new {
   /* Delay matches the slide duration so the new tile pops in only after
      existing tiles have finished sliding. */
-  animation: tile-appear 0.18s ease-out 0.22s both;
+  animation: tile-appear 0.14s ease-out 0.13s both;
 }
 
 /* Merge result animation: a quick scale-up "thump". Delayed slightly so it
@@ -314,7 +359,7 @@ body.dark .score {
 .tile-merged {
   /* Delay matches the slide duration so the merge thump fires after the
      absorbed tile has visibly slid into the destination cell. */
-  animation: tile-pop 0.18s ease-in-out 0.22s;
+  animation: tile-pop 0.14s ease-in-out 0.13s;
   z-index: 3;
 }
 
