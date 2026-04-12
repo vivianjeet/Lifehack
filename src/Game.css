@@ -54,17 +54,15 @@ body.dark .score {
   align-items: center;
 }
 
-/* The active player's own board is shown enlarged and centered.
-   Leaving a gap on the sides of the board lets touches outside the
-   box scroll the page normally, while touches inside the box don't. */
+/* The active player's own board is shown enlarged and centered, taking
+   nearly the full viewport width. The 24px side padding is the "scroll
+   gap": touches landing there miss .board and fall through to default
+   touch-action so the page scrolls normally. */
 .board-wrapper.active {
   order: -1;
   width: 100%;
   max-width: 100vw;
-  /* Small gaps on the left and right of the enlarged box.
-     Touches in this area fall outside .board and use default
-     touch-action, so the page scrolls as usual. */
-  padding: 0 30px;
+  padding: 0 24px;
   box-sizing: border-box;
 }
 
@@ -72,23 +70,11 @@ body.dark .score {
   /* Block page scrolling when the user touches inside the box. */
   touch-action: none;
   margin: 0 auto;
-}
-
-.board-wrapper.active .cell {
-  width: 120px;
-  height: 120px;
-  font-size: 36px;
-}
-
-.board-wrapper.active .cell-128,
-.board-wrapper.active .cell-256,
-.board-wrapper.active .cell-512 {
-  font-size: 30px;
-}
-
-.board-wrapper.active .cell-1024,
-.board-wrapper.active .cell-2048 {
-  font-size: 26px;
+  /* Size tiles off the viewport. The 84px reserved is:
+       2*24 (wrapper padding) + 2*6 (board padding) + 3*8 (3 inter-tile gaps)
+     = 48 + 12 + 24 = 84. So 4*tile = 100vw - 84, tile = (100vw - 84) / 4. */
+  --tile-size: calc((100vw - 84px) / 4);
+  --tile-gap: 8px;
 }
 
 .board-wrapper.opponent {
@@ -204,26 +190,46 @@ body.dark .score {
   margin-bottom: 10px;
 }
 
+/* --tile-size and --tile-gap are the single source of truth for cell
+   geometry. Both the static (opponent) board and the animated tile board
+   read from them, so a board's size is changed by overriding the vars on
+   .board (see .board-wrapper.active .board below). */
 .board {
+  --tile-size: 80px;
+  --tile-gap: 5px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 5px;
+  grid-template-columns: repeat(4, var(--tile-size));
+  gap: var(--tile-gap);
   background-color: #bbada0;
-  padding: 10px;
+  padding: var(--tile-gap);
   border-radius: 10px;
+}
+
+/* The animated board has a single child (.board-grid) that owns the layout,
+   so the outer .board only provides padding/background. */
+.animated-board {
+  display: inline-block;
+}
+
+.board-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, var(--tile-size));
+  gap: var(--tile-gap);
 }
 
 .row {
   display: contents;
 }
 
-.cell {
-  width: 80px;
-  height: 80px;
+.cell,
+.cell-bg {
+  width: var(--tile-size);
+  height: var(--tile-size);
   display: flex;
   justify-content: center;
   align-items: center;
-  font-size: 24px;
+  font-size: calc(var(--tile-size) * 0.32);
   font-weight: bold;
   border-radius: 6px;
   background-color: #cdc1b4;
@@ -236,11 +242,80 @@ body.dark .score {
 .cell-16 { background-color: #f59563; color: #f9f6f2; }
 .cell-32 { background-color: #f67c5f; color: #f9f6f2; }
 .cell-64 { background-color: #f65e3b; color: #f9f6f2; }
-.cell-128 { background-color: #edcf72; color: #f9f6f2; font-size: 20px; }
-.cell-256 { background-color: #edcc61; color: #f9f6f2; font-size: 20px; }
-.cell-512 { background-color: #edc850; color: #f9f6f2; font-size: 20px; }
-.cell-1024 { background-color: #edc53f; color: #f9f6f2; font-size: 18px; }
-.cell-2048 { background-color: #edc22e; color: #f9f6f2; font-size: 18px; }
+.cell-128 { background-color: #edcf72; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.26); }
+.cell-256 { background-color: #edcc61; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.26); }
+.cell-512 { background-color: #edc850; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.26); }
+.cell-1024 { background-color: #edc53f; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.22); }
+.cell-2048 { background-color: #edc22e; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.22); }
+
+/* Animated tile rendering. Each tile-wrapper is absolutely positioned
+   inside .board-grid; the wrapper transitions its transform property so
+   tiles smoothly slide between cells. The inner .tile handles
+   pop/spawn keyframes without conflicting with the slide transform. */
+.tile-wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--tile-size);
+  height: var(--tile-size);
+  transition: transform 0.15s ease-in-out;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.tile {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: calc(var(--tile-size) * 0.4);
+  font-weight: bold;
+  border-radius: 6px;
+  background-color: #cdc1b4;
+  color: #776e65;
+}
+
+.tile-2 { background-color: #eee4da; }
+.tile-4 { background-color: #ede0c8; }
+.tile-8 { background-color: #f2b179; color: #f9f6f2; }
+.tile-16 { background-color: #f59563; color: #f9f6f2; }
+.tile-32 { background-color: #f67c5f; color: #f9f6f2; }
+.tile-64 { background-color: #f65e3b; color: #f9f6f2; }
+.tile-128 { background-color: #edcf72; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.32); }
+.tile-256 { background-color: #edcc61; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.32); }
+.tile-512 { background-color: #edc850; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.32); }
+.tile-1024 { background-color: #edc53f; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.26); }
+.tile-2048 { background-color: #edc22e; color: #f9f6f2; font-size: calc(var(--tile-size) * 0.26); }
+
+/* Spawn animation: new random tiles pop in from zero. */
+@keyframes tile-appear {
+  0%   { transform: scale(0); opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.tile-new {
+  animation: tile-appear 0.18s ease-out 0.1s both;
+}
+
+/* Merge result animation: a quick scale-up "thump". Delayed slightly so it
+   plays after the slide transition has visually completed. */
+@keyframes tile-pop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+.tile-merged {
+  animation: tile-pop 0.18s ease-in-out 0.1s;
+  z-index: 3;
+}
+
+.tile-vanishing {
+  /* Stays visible during the slide and is removed in the cleanup pass.
+     Lives in the same cell as the tile it merged into, behind it. */
+}
 
 @media (max-width: 768px) {
   .boards {
@@ -248,41 +323,9 @@ body.dark .score {
     gap: 20px;
   }
 
-  .cell {
-    width: 60px;
-    height: 60px;
-    font-size: 18px;
-  }
-
-  .cell-128, .cell-256, .cell-512, .cell-1024, .cell-2048 {
-    font-size: 14px;
-  }
-
-  /* On mobile, size the enlarged active board off the viewport width,
-     reserving ~30px on each side for page-scroll touches. The math:
-     board inner width = 4*cell + 3*5 (gaps) + 2*10 (padding).
-     So cell = (viewportWidth - 60px gaps - 35px board chrome) / 4. */
-  .board-wrapper.active {
-    padding: 0 30px;
-  }
-
-  .board-wrapper.active .cell {
-    width: calc((100vw - 95px) / 4);
-    height: calc((100vw - 95px) / 4);
-    max-width: 140px;
-    max-height: 140px;
-    font-size: 28px;
-  }
-
-  .board-wrapper.active .cell-128,
-  .board-wrapper.active .cell-256,
-  .board-wrapper.active .cell-512 {
-    font-size: 24px;
-  }
-
-  .board-wrapper.active .cell-1024,
-  .board-wrapper.active .cell-2048 {
-    font-size: 20px;
+  .board {
+    --tile-size: 60px;
+    --tile-gap: 4px;
   }
 }
 

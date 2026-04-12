@@ -26,81 +26,143 @@ const addRandomTile = (board: number[][]) => {
   }
 };
 
-const moveLeft = (row: number[]) => {
-  const newRow = row.filter(val => val !== 0);
-  let score = 0;
-  for (let i = 0; i < newRow.length - 1; i++) {
-    if (newRow[i] === newRow[i + 1]) {
-      newRow[i] *= 2;
-      score += newRow[i];
-      newRow[i + 1] = 0;
+// Tile-based game model. Tiles carry stable ids across moves so the UI can
+// animate each tile sliding from its old position to its new one. A pure
+// board-number model can't do that: a "4" landing in a cell is indistinguishable
+// from the "4" that used to be there.
+type Tile = {
+  id: number;
+  value: number;
+  row: number;
+  col: number;
+  // Set on a tile that merged into another this move. It keeps its id so it
+  // can slide to the destination cell, then gets cleaned up shortly after.
+  mergedInto?: number;
+  // Spawned by addRandomTileToTiles — plays a one-shot pop-in animation.
+  isNew?: boolean;
+  // The result of a merge this move — plays a one-shot scale-up pop.
+  justMerged?: boolean;
+};
+
+let tileIdCounter = 0;
+const nextTileId = () => ++tileIdCounter;
+
+const boardToTiles = (board: number[][]): Tile[] => {
+  const tiles: Tile[] = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (board[r][c] !== 0) {
+        tiles.push({ id: nextTileId(), value: board[r][c], row: r, col: c });
+      }
     }
   }
-  const merged = newRow.filter(val => val !== 0);
-  while (merged.length < SIZE) merged.push(0);
-  return { row: merged, score };
+  return tiles;
 };
 
-const moveRight = (row: number[]) => {
-  const result = moveLeft(row.slice().reverse());
-  return { row: result.row.reverse(), score: result.score };
-};
-
-const moveUp = (board: number[][]) => {
-  const transposed = board[0].map((_, col) => board.map(row => row[col]));
-  let totalScore = 0;
-  const newTransposed = transposed.map(row => {
-    const result = moveLeft(row);
-    totalScore += result.score;
-    return result.row;
-  });
-  return { board: newTransposed[0].map((_, col) => newTransposed.map(row => row[col])), score: totalScore };
-};
-
-const moveDown = (board: number[][]) => {
-  const transposed = board[0].map((_, col) => board.map(row => row[col]));
-  let totalScore = 0;
-  const newTransposed = transposed.map(row => {
-    const result = moveRight(row);
-    totalScore += result.score;
-    return result.row;
-  });
-  return { board: newTransposed[0].map((_, col) => newTransposed.map(row => row[col])), score: totalScore };
-};
-
-const moveBoard = (board: number[][], direction: string) => {
-  let result;
-  if (direction === 'left') {
-    let totalScore = 0;
-    const newBoard = board.map(row => {
-      const res = moveLeft(row);
-      totalScore += res.score;
-      return res.row;
-    });
-    result = { board: newBoard, score: totalScore };
-  } else if (direction === 'right') {
-    let totalScore = 0;
-    const newBoard = board.map(row => {
-      const res = moveRight(row);
-      totalScore += res.score;
-      return res.row;
-    });
-    result = { board: newBoard, score: totalScore };
-  } else if (direction === 'up') {
-    result = moveUp(board);
-  } else if (direction === 'down') {
-    result = moveDown(board);
-  } else {
-    return { board, score: 0 };
+const tilesToBoard = (tiles: Tile[]): number[][] => {
+  const board: number[][] = Array.from({ length: SIZE }, () =>
+    Array(SIZE).fill(0)
+  );
+  for (const t of tiles) {
+    if (t.mergedInto !== undefined) continue;
+    board[t.row][t.col] = t.value;
   }
-  // Check if board changed
-  const changed = JSON.stringify(result.board) !== JSON.stringify(board);
-  if (changed) {
-    addRandomTile(result.board);
-  } else {
-    result.score = 0; // No score if no move
+  return board;
+};
+
+// Slide + merge all tiles in the given direction. Returns the new tile list
+// (including merged-away tiles for the slide animation), the points scored,
+// and whether anything actually moved.
+const moveTilesInDirection = (
+  input: Tile[],
+  direction: 'left' | 'right' | 'up' | 'down'
+): { tiles: Tile[]; score: number; moved: boolean } => {
+  const horizontal = direction === 'left' || direction === 'right';
+  const reverse = direction === 'right' || direction === 'down';
+
+  // Drop any lingering "already merged away" tiles from a previous move and
+  // clear per-move flags on the rest.
+  const live = input
+    .filter(t => t.mergedInto === undefined)
+    .map(t => ({
+      id: t.id,
+      value: t.value,
+      row: t.row,
+      col: t.col,
+    }));
+
+  const result: Tile[] = [];
+  let score = 0;
+  let moved = false;
+
+  for (let line = 0; line < SIZE; line++) {
+    const lineTiles = live
+      .filter(t => (horizontal ? t.row === line : t.col === line))
+      .sort((a, b) => {
+        if (horizontal) return reverse ? b.col - a.col : a.col - b.col;
+        return reverse ? b.row - a.row : a.row - b.row;
+      });
+
+    const placed: Tile[] = [];
+    const mergedAway: Tile[] = [];
+    // True iff the most-recently-placed tile is still eligible to absorb a merge.
+    // Flips to false the moment it *has* merged, so we don't chain-merge
+    // (original 2048 rule: each tile can only merge once per move).
+    let canMergeWithLast = false;
+
+    for (const tile of lineTiles) {
+      const lastPlaced = placed[placed.length - 1];
+      if (canMergeWithLast && lastPlaced && lastPlaced.value === tile.value) {
+        const mergePos = reverse
+          ? SIZE - 1 - (placed.length - 1)
+          : placed.length - 1;
+        // Animate the consumed tile to its destination cell, then vanish.
+        if (horizontal) tile.col = mergePos;
+        else tile.row = mergePos;
+        (tile as Tile).mergedInto = lastPlaced.id;
+        mergedAway.push(tile);
+
+        lastPlaced.value *= 2;
+        (lastPlaced as Tile).justMerged = true;
+        score += lastPlaced.value;
+        canMergeWithLast = false;
+        moved = true;
+      } else {
+        const nextPos = placed.length;
+        const targetPos = reverse ? SIZE - 1 - nextPos : nextPos;
+        const origPos = horizontal ? tile.col : tile.row;
+        if (origPos !== targetPos) moved = true;
+        if (horizontal) tile.col = targetPos;
+        else tile.row = targetPos;
+        placed.push(tile);
+        canMergeWithLast = true;
+      }
+    }
+
+    result.push(...placed, ...mergedAway);
   }
-  return result;
+
+  return { tiles: result, score, moved };
+};
+
+const addRandomTileToTiles = (tiles: Tile[]): Tile[] => {
+  const occupied = new Set<string>();
+  for (const t of tiles) {
+    if (t.mergedInto === undefined) occupied.add(`${t.row},${t.col}`);
+  }
+  const empty: Array<[number, number]> = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (!occupied.has(`${r},${c}`)) empty.push([r, c]);
+    }
+  }
+  if (empty.length === 0) return tiles;
+  const [r, c] = empty[Math.floor(Math.random() * empty.length)];
+  const value = Math.random() < 0.9 ? 2 : 4;
+  return [
+    ...tiles,
+    { id: nextTileId(), value, row: r, col: c, isNew: true },
+  ];
 };
 
 const isGameOver = (board: number[][]) => {
@@ -172,6 +234,75 @@ const Board: React.FC<{ board: number[][], onMove?: (direction: string) => void 
   );
 };
 
+// Tile-based board used for the active player. Each tile is keyed by its
+// stable id so React preserves the same DOM node across moves; sliding is
+// handled by a CSS transition on the wrapper's transform.
+const AnimatedBoard: React.FC<{
+  tiles: Tile[];
+  onMove?: (direction: string) => void;
+}> = ({ tiles, onMove }) => {
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(
+    null
+  );
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!onMove) return;
+    const touch = e.touches[0];
+    setTouchStart({ x: touch.clientX, y: touch.clientY });
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!onMove || !touchStart) return;
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStart.x;
+    const deltaY = touch.clientY - touchStart.y;
+    const minSwipeDistance = 30;
+
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (Math.abs(deltaX) > minSwipeDistance) {
+        onMove(deltaX > 0 ? 'right' : 'left');
+      }
+    } else {
+      if (Math.abs(deltaY) > minSwipeDistance) {
+        onMove(deltaY > 0 ? 'down' : 'up');
+      }
+    }
+    setTouchStart(null);
+  };
+
+  return (
+    <div
+      className="board animated-board"
+      onTouchStart={onMove ? handleTouchStart : undefined}
+      onTouchEnd={onMove ? handleTouchEnd : undefined}
+    >
+      <div className="board-grid">
+        {Array.from({ length: SIZE * SIZE }).map((_, i) => (
+          <div key={`bg-${i}`} className="cell-bg" />
+        ))}
+        {tiles.map(tile => {
+          const classes = ['tile', `tile-${tile.value}`];
+          if (tile.isNew) classes.push('tile-new');
+          if (tile.justMerged) classes.push('tile-merged');
+          if (tile.mergedInto !== undefined) classes.push('tile-vanishing');
+          return (
+            <div
+              key={tile.id}
+              className="tile-wrapper"
+              style={{
+                transform: `translate(calc(${tile.col} * (var(--tile-size) + var(--tile-gap))), calc(${tile.row} * (var(--tile-size) + var(--tile-gap))))`,
+                zIndex: tile.mergedInto !== undefined ? 1 : 2,
+              }}
+            >
+              <div className={classes.join(' ')}>{tile.value}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const Game: React.FC = () => {
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
@@ -203,6 +334,13 @@ const Game: React.FC = () => {
   const [celebrate2, setCelebrate2] = useState<boolean>(false);
   const prevReached1Ref = useRef<boolean>(false);
   const prevReached2Ref = useRef<boolean>(false);
+
+  // Tile-with-stable-ids representation of THE CURRENT PLAYER's board only.
+  // The opponent board is rendered from its 2D array (no animation needed).
+  // Updated atomically with board1/board2 inside moveMyBoard so animation
+  // identities are preserved through a slide.
+  const [selfTiles, setSelfTiles] = useState<Tile[]>([]);
+  const tileCleanupRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [resetTrigger, setResetTrigger] = useState<number>(0);
 
@@ -288,6 +426,9 @@ const Game: React.FC = () => {
         if (player === 1) prevReached1Ref.current = reached2048;
         else prevReached2Ref.current = reached2048;
 
+        // Build the animated tile list from whichever board belongs to us.
+        setSelfTiles(boardToTiles(board));
+
         // Set local state
         if (player === 1) {
           setBoard1(board);
@@ -313,6 +454,7 @@ const Game: React.FC = () => {
         console.error('Error initializing game state:', error);
         // Fallback to new board if Firebase fails
         const fallbackBoard = initialBoard();
+        setSelfTiles(boardToTiles(fallbackBoard));
         if (player === 1) {
           setBoard1(fallbackBoard);
           setScore1(0);
@@ -347,6 +489,7 @@ const Game: React.FC = () => {
       if (data && data !== resetTrigger) {
         console.log('Reset triggered from DB for player', player);
         const initial = initialBoard();
+        setSelfTiles(boardToTiles(initial));
         setBoard1(initial);
         setBoard2(initial);
         setScore1(0);
@@ -491,77 +634,98 @@ const Game: React.FC = () => {
   }, [player, gameId]);
 
   const moveMyBoard = useCallback((direction: string) => {
+    if (direction !== 'left' && direction !== 'right' && direction !== 'up' && direction !== 'down') return;
     const myBoard = player === 1 ? board1 : board2;
     const myScore = player === 1 ? score1 : score2;
     const myUndos = player === 1 ? undos1 : undos2;
     const myReached2048 = player === 1 ? reached2048_1 : reached2048_2;
-    const result = moveBoard(myBoard, direction);
-    const boardChanged = JSON.stringify(result.board) !== JSON.stringify(myBoard);
-    if (result.score > 0 || boardChanged) {
-      const newScore = myScore + result.score;
-      // 1 undo granted per 2500 points crossed by this move (can be multiple).
-      const earnedUndos =
-        Math.floor(newScore / 2500) - Math.floor(myScore / 2500);
-      const newUndos = myUndos + earnedUndos;
-      const boardHas2048 = result.board.some(row => row.some(cell => cell >= 2048));
-      const firstReached2048 = boardHas2048 && !myReached2048;
 
-      // Update Firebase
-      console.log(`Player ${player} moving ${direction}, updating DB`);
-      const playerPath = `games/${gameId}/player${player}`;
-      // Save pre-move snapshot so the player can undo this move.
-      set(ref(database, `${playerPath}/prevBoard`), myBoard)
-        .catch((error) => console.error('Error saving prev board:', error));
-      set(ref(database, `${playerPath}/prevScore`), myScore)
-        .catch((error) => console.error('Error saving prev score:', error));
-      set(ref(database, `${playerPath}/board`), result.board)
-        .then(() => console.log('Board updated successfully'))
-        .catch((error) => console.error('Error updating board:', error));
-      set(ref(database, `${playerPath}/score`), newScore)
-        .then(() => console.log('Score updated successfully'))
-        .catch((error) => console.error('Error updating score:', error));
-      if (earnedUndos > 0) {
-        set(ref(database, `${playerPath}/undos`), newUndos)
-          .catch((error) => console.error('Error updating undos:', error));
-      }
-      if (firstReached2048) {
-        set(ref(database, `${playerPath}/reached2048`), true)
-          .catch((error) => console.error('Error updating reached2048:', error));
-      }
+    // Move on the tile representation so sliding identities are preserved.
+    const moveResult = moveTilesInDirection(selfTiles, direction);
+    if (!moveResult.moved) return;
 
-      // Update local
-      if (player === 1) {
-        setPrevBoard1(myBoard);
-        setPrevScore1(myScore);
-        setBoard1(result.board);
-        setScore1(newScore);
-        if (earnedUndos > 0) setUndos1(newUndos);
-        if (firstReached2048) setReached2048_1(true);
-        // Check for game over
-        if (isGameOver(result.board)) {
-          setGameOver1(true);
-          set(ref(database, `${playerPath}/gameOver`), true)
-            .then(() => console.log('Game over updated successfully'))
-            .catch((error) => console.error('Error updating game over:', error));
-        }
-      } else {
-        setPrevBoard2(myBoard);
-        setPrevScore2(myScore);
-        setBoard2(result.board);
-        setScore2(newScore);
-        if (earnedUndos > 0) setUndos2(newUndos);
-        if (firstReached2048) setReached2048_2(true);
-        // Check for game over
-        if (isGameOver(result.board)) {
-          setGameOver2(true);
-          set(ref(database, `${playerPath}/gameOver`), true)
-            .then(() => console.log('Game over updated successfully'))
-            .catch((error) => console.error('Error updating game over:', error));
-        }
+    // Spawn new random tile, then derive the 2D board from the resulting
+    // tile list — that's what Firebase + game-over checks consume.
+    const tilesWithSpawn = addRandomTileToTiles(moveResult.tiles);
+    const newBoard = tilesToBoard(tilesWithSpawn);
+
+    const newScore = myScore + moveResult.score;
+    // 1 undo granted per 2500 points crossed by this move (can be multiple).
+    const earnedUndos =
+      Math.floor(newScore / 2500) - Math.floor(myScore / 2500);
+    const newUndos = myUndos + earnedUndos;
+    const boardHas2048 = newBoard.some(row => row.some(cell => cell >= 2048));
+    const firstReached2048 = boardHas2048 && !myReached2048;
+
+    // Update Firebase
+    console.log(`Player ${player} moving ${direction}, updating DB`);
+    const playerPath = `games/${gameId}/player${player}`;
+    set(ref(database, `${playerPath}/prevBoard`), myBoard)
+      .catch((error) => console.error('Error saving prev board:', error));
+    set(ref(database, `${playerPath}/prevScore`), myScore)
+      .catch((error) => console.error('Error saving prev score:', error));
+    set(ref(database, `${playerPath}/board`), newBoard)
+      .then(() => console.log('Board updated successfully'))
+      .catch((error) => console.error('Error updating board:', error));
+    set(ref(database, `${playerPath}/score`), newScore)
+      .then(() => console.log('Score updated successfully'))
+      .catch((error) => console.error('Error updating score:', error));
+    if (earnedUndos > 0) {
+      set(ref(database, `${playerPath}/undos`), newUndos)
+        .catch((error) => console.error('Error updating undos:', error));
+    }
+    if (firstReached2048) {
+      set(ref(database, `${playerPath}/reached2048`), true)
+        .catch((error) => console.error('Error updating reached2048:', error));
+    }
+
+    // Drive the slide animation: render the merged-away tiles in their
+    // destination positions for the duration of the CSS transition, then
+    // strip them and clear per-move flags.
+    setSelfTiles(tilesWithSpawn);
+    if (tileCleanupRef.current) clearTimeout(tileCleanupRef.current);
+    tileCleanupRef.current = setTimeout(() => {
+      setSelfTiles(current =>
+        current
+          .filter(t => t.mergedInto === undefined)
+          .map(t =>
+            t.isNew || t.justMerged
+              ? { ...t, isNew: false, justMerged: false }
+              : t
+          )
+      );
+      tileCleanupRef.current = null;
+    }, 180);
+
+    // Update local
+    if (player === 1) {
+      setPrevBoard1(myBoard);
+      setPrevScore1(myScore);
+      setBoard1(newBoard);
+      setScore1(newScore);
+      if (earnedUndos > 0) setUndos1(newUndos);
+      if (firstReached2048) setReached2048_1(true);
+      if (isGameOver(newBoard)) {
+        setGameOver1(true);
+        set(ref(database, `${playerPath}/gameOver`), true)
+          .catch((error) => console.error('Error updating game over:', error));
+      }
+    } else {
+      setPrevBoard2(myBoard);
+      setPrevScore2(myScore);
+      setBoard2(newBoard);
+      setScore2(newScore);
+      if (earnedUndos > 0) setUndos2(newUndos);
+      if (firstReached2048) setReached2048_2(true);
+      if (isGameOver(newBoard)) {
+        setGameOver2(true);
+        set(ref(database, `${playerPath}/gameOver`), true)
+          .catch((error) => console.error('Error updating game over:', error));
       }
     }
   }, [
     player,
+    selfTiles,
     board1,
     board2,
     score1,
@@ -596,6 +760,14 @@ const Game: React.FC = () => {
       .catch((error) => console.error('Error clearing prev score:', error));
     set(ref(database, `${playerPath}/gameOver`), false)
       .catch((error) => console.error('Error clearing game over:', error));
+
+    // Cancel any pending tile cleanup so it doesn't stomp on the restored
+    // tile list mid-animation, then rebuild tiles fresh from the prev board.
+    if (tileCleanupRef.current) {
+      clearTimeout(tileCleanupRef.current);
+      tileCleanupRef.current = null;
+    }
+    setSelfTiles(boardToTiles(myPrevBoard));
 
     if (player === 1) {
       setBoard1(myPrevBoard);
@@ -739,7 +911,14 @@ const Game: React.FC = () => {
             >
               <h2>Player 1</h2>
               <div className="board-container">
-                <Board board={board1} onMove={player === 1 && !gameOver1 ? moveMyBoard : undefined} />
+                {player === 1 ? (
+                  <AnimatedBoard
+                    tiles={selfTiles}
+                    onMove={!gameOver1 ? moveMyBoard : undefined}
+                  />
+                ) : (
+                  <Board board={board1} />
+                )}
                 {gameOver1 && <div className="game-over">Game Over</div>}
               </div>
               <button
@@ -755,7 +934,14 @@ const Game: React.FC = () => {
             >
               <h2>Player 2</h2>
               <div className="board-container">
-                <Board board={board2} onMove={player === 2 && !gameOver2 ? moveMyBoard : undefined} />
+                {player === 2 ? (
+                  <AnimatedBoard
+                    tiles={selfTiles}
+                    onMove={!gameOver2 ? moveMyBoard : undefined}
+                  />
+                ) : (
+                  <Board board={board2} />
+                )}
                 {gameOver2 && <div className="game-over">Game Over</div>}
               </div>
               <button
