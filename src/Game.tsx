@@ -240,7 +240,9 @@ const Board: React.FC<{ board: number[][], onMove?: (direction: string) => void 
 const AnimatedBoard: React.FC<{
   tiles: Tile[];
   onMove?: (direction: string) => void;
-}> = ({ tiles, onMove }) => {
+  swipeMode?: boolean;
+  onTileTap?: (row: number, col: number) => void;
+}> = ({ tiles, onMove, swipeMode, onTileTap }) => {
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(
     null
   );
@@ -272,9 +274,9 @@ const AnimatedBoard: React.FC<{
 
   return (
     <div
-      className="board animated-board"
-      onTouchStart={onMove ? handleTouchStart : undefined}
-      onTouchEnd={onMove ? handleTouchEnd : undefined}
+      className={`board animated-board${swipeMode ? ' swipe-mode' : ''}`}
+      onTouchStart={onMove && !swipeMode ? handleTouchStart : undefined}
+      onTouchEnd={onMove && !swipeMode ? handleTouchEnd : undefined}
     >
       <div className="board-grid">
         {Array.from({ length: SIZE * SIZE }).map((_, i) => (
@@ -285,14 +287,24 @@ const AnimatedBoard: React.FC<{
           if (tile.isNew) classes.push('tile-new');
           if (tile.justMerged) classes.push('tile-merged');
           if (tile.mergedInto !== undefined) classes.push('tile-vanishing');
+          const tappable =
+            swipeMode && onTileTap && tile.mergedInto === undefined;
           return (
             <div
               key={tile.id}
-              className="tile-wrapper"
+              className={`tile-wrapper${tappable ? ' tile-tappable' : ''}`}
               style={{
                 transform: `translate(calc(${tile.col} * (var(--tile-size) + var(--tile-gap))), calc(${tile.row} * (var(--tile-size) + var(--tile-gap))))`,
                 zIndex: tile.mergedInto !== undefined ? 1 : 2,
               }}
+              onClick={
+                tappable
+                  ? (e) => {
+                      e.stopPropagation();
+                      onTileTap!(tile.row, tile.col);
+                    }
+                  : undefined
+              }
             >
               <div className={classes.join(' ')}>{tile.value}</div>
             </div>
@@ -317,13 +329,19 @@ const Game: React.FC = () => {
   const [resetRequest1, setResetRequest1] = useState<boolean>(false);
   const [resetRequest2, setResetRequest2] = useState<boolean>(false);
 
-  // Undo state: 1 undo granted for every 2500 points earned, stored in Firebase.
+  // Undo state: 1 undo granted for every 5000 points earned, stored in Firebase.
   const [undos1, setUndos1] = useState<number>(0);
   const [undos2, setUndos2] = useState<number>(0);
   const [prevBoard1, setPrevBoard1] = useState<number[][] | null>(null);
   const [prevBoard2, setPrevBoard2] = useState<number[][] | null>(null);
   const [prevScore1, setPrevScore1] = useState<number | null>(null);
   const [prevScore2, setPrevScore2] = useState<number | null>(null);
+
+  // Tile-swipe state: 1 swipe granted for every 5000 points earned. Clicking
+  // the button enters swipeMode; the next tap on a tile removes it.
+  const [swipes1, setSwipes1] = useState<number>(0);
+  const [swipes2, setSwipes2] = useState<number>(0);
+  const [swipeMode, setSwipeMode] = useState<boolean>(false);
 
   // Tracks whether each player has ever crossed 2048 (persisted in Firebase).
   const [reached2048_1, setReached2048_1] = useState<boolean>(false);
@@ -359,6 +377,7 @@ const Game: React.FC = () => {
         const prevBoardRef = ref(database, `games/${gameId}/player${player}/prevBoard`);
         const prevScoreRef = ref(database, `games/${gameId}/player${player}/prevScore`);
         const reached2048Ref = ref(database, `games/${gameId}/player${player}/reached2048`);
+        const swipesRef = ref(database, `games/${gameId}/player${player}/swipes`);
 
         const [
           boardSnapshot,
@@ -369,6 +388,7 @@ const Game: React.FC = () => {
           prevBoardSnapshot,
           prevScoreSnapshot,
           reached2048Snapshot,
+          swipesSnapshot,
         ] = await Promise.all([
           get(boardRef),
           get(scoreRef),
@@ -378,6 +398,7 @@ const Game: React.FC = () => {
           get(prevBoardRef),
           get(prevScoreRef),
           get(reached2048Ref),
+          get(swipesRef),
         ]);
 
         let board: number[][];
@@ -388,6 +409,7 @@ const Game: React.FC = () => {
         let prevBoard: number[][] | null;
         let prevScore: number | null;
         let reached2048: boolean;
+        let swipes: number;
 
         if (boardSnapshot.exists() && scoreSnapshot.exists()) {
           // Load existing state from Firebase
@@ -399,6 +421,7 @@ const Game: React.FC = () => {
           prevBoard = prevBoardSnapshot.exists() ? prevBoardSnapshot.val() : null;
           prevScore = prevScoreSnapshot.exists() ? prevScoreSnapshot.val() : null;
           reached2048 = reached2048Snapshot.exists() ? reached2048Snapshot.val() : false;
+          swipes = swipesSnapshot.exists() ? swipesSnapshot.val() : 0;
           console.log(`Player ${player} loaded existing state from Firebase`);
         } else {
           // Create new initial state
@@ -410,6 +433,7 @@ const Game: React.FC = () => {
           prevBoard = null;
           prevScore = null;
           reached2048 = false;
+          swipes = 0;
 
           // Push initial state to Firebase
           await set(boardRef, board);
@@ -418,6 +442,7 @@ const Game: React.FC = () => {
           await set(resetRequestRef, resetRequest);
           await set(undosRef, undos);
           await set(reached2048Ref, reached2048);
+          await set(swipesRef, swipes);
           console.log(`Player ${player} created new initial state`);
         }
 
@@ -439,6 +464,7 @@ const Game: React.FC = () => {
           setPrevBoard1(prevBoard);
           setPrevScore1(prevScore);
           setReached2048_1(reached2048);
+          setSwipes1(swipes);
         } else {
           setBoard2(board);
           setScore2(score);
@@ -448,6 +474,7 @@ const Game: React.FC = () => {
           setPrevBoard2(prevBoard);
           setPrevScore2(prevScore);
           setReached2048_2(reached2048);
+          setSwipes2(swipes);
         }
         
       } catch (error) {
@@ -464,6 +491,7 @@ const Game: React.FC = () => {
           setPrevBoard1(null);
           setPrevScore1(null);
           setReached2048_1(false);
+          setSwipes1(0);
         } else {
           setBoard2(fallbackBoard);
           setScore2(0);
@@ -473,6 +501,7 @@ const Game: React.FC = () => {
           setPrevBoard2(null);
           setPrevScore2(null);
           setReached2048_2(false);
+          setSwipes2(0);
         }
       }
     };
@@ -506,6 +535,9 @@ const Game: React.FC = () => {
         setPrevScore2(null);
         setReached2048_1(false);
         setReached2048_2(false);
+        setSwipes1(0);
+        setSwipes2(0);
+        setSwipeMode(false);
         prevReached1Ref.current = false;
         prevReached2Ref.current = false;
         setCelebrate1(false);
@@ -545,6 +577,7 @@ const Game: React.FC = () => {
         [`games/${gameId}/player1/prevBoard`]: null,
         [`games/${gameId}/player1/prevScore`]: null,
         [`games/${gameId}/player1/reached2048`]: false,
+        [`games/${gameId}/player1/swipes`]: 0,
         [`games/${gameId}/player2/board`]: initial,
         [`games/${gameId}/player2/score`]: 0,
         [`games/${gameId}/player2/gameOver`]: false,
@@ -553,6 +586,7 @@ const Game: React.FC = () => {
         [`games/${gameId}/player2/prevBoard`]: null,
         [`games/${gameId}/player2/prevScore`]: null,
         [`games/${gameId}/player2/reached2048`]: false,
+        [`games/${gameId}/player2/swipes`]: 0,
         [`games/${gameId}/reset`]: newResetTrigger
       };
       
@@ -570,6 +604,7 @@ const Game: React.FC = () => {
     const resetRequestRef = ref(database, `games/${gameId}/player${opponent}/resetRequest`);
     const undosRef = ref(database, `games/${gameId}/player${opponent}/undos`);
     const reached2048Ref = ref(database, `games/${gameId}/player${opponent}/reached2048`);
+    const swipesRef = ref(database, `games/${gameId}/player${opponent}/swipes`);
 
     console.log(`Player ${player} listening to opponent ${opponent}`);
 
@@ -623,6 +658,14 @@ const Game: React.FC = () => {
       setReached2048_2(prev => opponent === 2 ? data : prev);
     });
 
+    const unsubscribeSwipes = onValue(swipesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data !== null) {
+        setSwipes1(prev => opponent === 1 ? data : prev);
+        setSwipes2(prev => opponent === 2 ? data : prev);
+      }
+    });
+
     return () => {
       unsubscribeBoard();
       unsubscribeScore();
@@ -630,6 +673,7 @@ const Game: React.FC = () => {
       unsubscribeResetRequest();
       unsubscribeUndos();
       unsubscribeReached2048();
+      unsubscribeSwipes();
     };
   }, [player, gameId]);
 
@@ -638,6 +682,7 @@ const Game: React.FC = () => {
     const myBoard = player === 1 ? board1 : board2;
     const myScore = player === 1 ? score1 : score2;
     const myUndos = player === 1 ? undos1 : undos2;
+    const mySwipes = player === 1 ? swipes1 : swipes2;
     const myReached2048 = player === 1 ? reached2048_1 : reached2048_2;
 
     // Move on the tile representation so sliding identities are preserved.
@@ -650,10 +695,14 @@ const Game: React.FC = () => {
     const newBoard = tilesToBoard(tilesWithSpawn);
 
     const newScore = myScore + moveResult.score;
-    // 1 undo granted per 2500 points crossed by this move (can be multiple).
+    // 1 undo granted per 5000 points crossed by this move (can be multiple).
     const earnedUndos =
-      Math.floor(newScore / 2500) - Math.floor(myScore / 2500);
+      Math.floor(newScore / 5000) - Math.floor(myScore / 5000);
     const newUndos = myUndos + earnedUndos;
+    // 1 swipe granted per 5000 points crossed by this move.
+    const earnedSwipes =
+      Math.floor(newScore / 5000) - Math.floor(myScore / 5000);
+    const newSwipes = mySwipes + earnedSwipes;
     const boardHas2048 = newBoard.some(row => row.some(cell => cell >= 2048));
     const firstReached2048 = boardHas2048 && !myReached2048;
 
@@ -673,6 +722,10 @@ const Game: React.FC = () => {
     if (earnedUndos > 0) {
       set(ref(database, `${playerPath}/undos`), newUndos)
         .catch((error) => console.error('Error updating undos:', error));
+    }
+    if (earnedSwipes > 0) {
+      set(ref(database, `${playerPath}/swipes`), newSwipes)
+        .catch((error) => console.error('Error updating swipes:', error));
     }
     if (firstReached2048) {
       set(ref(database, `${playerPath}/reached2048`), true)
@@ -695,7 +748,7 @@ const Game: React.FC = () => {
           )
       );
       tileCleanupRef.current = null;
-    }, 260);
+    }, 160);
 
     // Update local
     if (player === 1) {
@@ -704,6 +757,7 @@ const Game: React.FC = () => {
       setBoard1(newBoard);
       setScore1(newScore);
       if (earnedUndos > 0) setUndos1(newUndos);
+      if (earnedSwipes > 0) setSwipes1(newSwipes);
       if (firstReached2048) setReached2048_1(true);
       if (isGameOver(newBoard)) {
         setGameOver1(true);
@@ -716,6 +770,7 @@ const Game: React.FC = () => {
       setBoard2(newBoard);
       setScore2(newScore);
       if (earnedUndos > 0) setUndos2(newUndos);
+      if (earnedSwipes > 0) setSwipes2(newSwipes);
       if (firstReached2048) setReached2048_2(true);
       if (isGameOver(newBoard)) {
         setGameOver2(true);
@@ -732,10 +787,51 @@ const Game: React.FC = () => {
     score2,
     undos1,
     undos2,
+    swipes1,
+    swipes2,
     reached2048_1,
     reached2048_2,
     gameId,
   ]);
+
+  // Swipe a tile off the board. Costs one swipe; does NOT spawn a new
+  // random tile and does NOT record a prev board snapshot (no undo of a
+  // swipe). Only callable while in swipeMode and for the active player.
+  const handleSwipeTile = useCallback((row: number, col: number) => {
+    const mySwipes = player === 1 ? swipes1 : swipes2;
+    if (mySwipes <= 0) return;
+
+    // Any lingering merged-away tiles from a pending cleanup must be
+    // dropped before we rebuild the board, otherwise they'd resurrect.
+    if (tileCleanupRef.current) {
+      clearTimeout(tileCleanupRef.current);
+      tileCleanupRef.current = null;
+    }
+
+    const newTiles = selfTiles
+      .filter(t => t.mergedInto === undefined)
+      .filter(t => !(t.row === row && t.col === col))
+      .map(t => ({ ...t, isNew: false, justMerged: false }));
+    const newBoard = tilesToBoard(newTiles);
+    const newSwipes = mySwipes - 1;
+
+    setSelfTiles(newTiles);
+    setSwipeMode(false);
+
+    const playerPath = `games/${gameId}/player${player}`;
+    set(ref(database, `${playerPath}/board`), newBoard)
+      .catch((error) => console.error('Error updating board after swipe:', error));
+    set(ref(database, `${playerPath}/swipes`), newSwipes)
+      .catch((error) => console.error('Error updating swipes:', error));
+
+    if (player === 1) {
+      setBoard1(newBoard);
+      setSwipes1(newSwipes);
+    } else {
+      setBoard2(newBoard);
+      setSwipes2(newSwipes);
+    }
+  }, [player, swipes1, swipes2, selfTiles, gameId]);
 
   const handleUndo = useCallback(() => {
     const myPrevBoard = player === 1 ? prevBoard1 : prevBoard2;
@@ -915,19 +1011,62 @@ const Game: React.FC = () => {
                   <AnimatedBoard
                     tiles={selfTiles}
                     onMove={!gameOver1 ? moveMyBoard : undefined}
+                    swipeMode={swipeMode}
+                    onTileTap={handleSwipeTile}
                   />
                 ) : (
                   <Board board={board1} />
                 )}
                 {gameOver1 && <div className="game-over">Game Over</div>}
               </div>
-              <button
-                className="undo-button"
-                onClick={handleUndo}
-                disabled={player !== 1 || undos1 <= 0 || !prevBoard1}
-              >
-                Undo<sub>{undos1}</sub>
-              </button>
+              <div className="action-buttons">
+                <button
+                  className="undo-button"
+                  onClick={handleUndo}
+                  disabled={player !== 1 || undos1 <= 0 || !prevBoard1}
+                  aria-label="Undo"
+                  title="Undo"
+                >
+                  <svg
+                    className="action-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 12a9 9 0 1 0 3-6.7" />
+                    <polyline points="3 4 3 10 9 10" />
+                  </svg>
+                  <sub>{undos1}</sub>
+                </button>
+                <button
+                  className={`swipe-button${swipeMode && player === 1 ? ' active' : ''}`}
+                  onClick={() => setSwipeMode(m => !m)}
+                  disabled={player !== 1 || swipes1 <= 0 || gameOver1}
+                  aria-label="Tile swipe"
+                  title="Tap, then tap a tile to remove it"
+                >
+                  <svg
+                    className="action-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="9" y="5" width="11" height="14" rx="2" />
+                    <path d="M2 9h5" />
+                    <path d="M2 12h5" />
+                    <path d="M2 15h5" />
+                  </svg>
+                  <sub>{swipes1}</sub>
+                </button>
+              </div>
             </div>
             <div
               className={`board-wrapper ${player === 2 ? 'active' : 'opponent'} ${p2Standing} ${p2Celebrate}`}
@@ -938,19 +1077,62 @@ const Game: React.FC = () => {
                   <AnimatedBoard
                     tiles={selfTiles}
                     onMove={!gameOver2 ? moveMyBoard : undefined}
+                    swipeMode={swipeMode}
+                    onTileTap={handleSwipeTile}
                   />
                 ) : (
                   <Board board={board2} />
                 )}
                 {gameOver2 && <div className="game-over">Game Over</div>}
               </div>
-              <button
-                className="undo-button"
-                onClick={handleUndo}
-                disabled={player !== 2 || undos2 <= 0 || !prevBoard2}
-              >
-                Undo<sub>{undos2}</sub>
-              </button>
+              <div className="action-buttons">
+                <button
+                  className="undo-button"
+                  onClick={handleUndo}
+                  disabled={player !== 2 || undos2 <= 0 || !prevBoard2}
+                  aria-label="Undo"
+                  title="Undo"
+                >
+                  <svg
+                    className="action-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M3 12a9 9 0 1 0 3-6.7" />
+                    <polyline points="3 4 3 10 9 10" />
+                  </svg>
+                  <sub>{undos2}</sub>
+                </button>
+                <button
+                  className={`swipe-button${swipeMode && player === 2 ? ' active' : ''}`}
+                  onClick={() => setSwipeMode(m => !m)}
+                  disabled={player !== 2 || swipes2 <= 0 || gameOver2}
+                  aria-label="Tile swipe"
+                  title="Tap, then tap a tile to remove it"
+                >
+                  <svg
+                    className="action-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="9" y="5" width="11" height="14" rx="2" />
+                    <path d="M2 9h5" />
+                    <path d="M2 12h5" />
+                    <path d="M2 15h5" />
+                  </svg>
+                  <sub>{swipes2}</sub>
+                </button>
+              </div>
             </div>
           </div>
         );
