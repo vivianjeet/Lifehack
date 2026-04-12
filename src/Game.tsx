@@ -695,7 +695,7 @@ const Game: React.FC = () => {
           )
       );
       tileCleanupRef.current = null;
-    }, 180);
+    }, 260);
 
     // Update local
     if (player === 1) {

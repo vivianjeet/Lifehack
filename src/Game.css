@@ -258,7 +258,9 @@ body.dark .score {
   left: 0;
   width: var(--tile-size);
   height: var(--tile-size);
-  transition: transform 0.15s ease-in-out;
+  /* Ease-out curve starts moving immediately so the slide is visible from
+     the first frame, instead of easing into/out of the motion. */
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
   will-change: transform;
 }
@@ -296,7 +298,9 @@ body.dark .score {
 }
 
 .tile-new {
-  animation: tile-appear 0.18s ease-out 0.1s both;
+  /* Delay matches the slide duration so the new tile pops in only after
+     existing tiles have finished sliding. */
+  animation: tile-appear 0.18s ease-out 0.22s both;
 }
 
 /* Merge result animation: a quick scale-up "thump". Delayed slightly so it
@@ -308,7 +312,9 @@ body.dark .score {
 }
 
 .tile-merged {
-  animation: tile-pop 0.18s ease-in-out 0.1s;
+  /* Delay matches the slide duration so the merge thump fires after the
+     absorbed tile has visibly slid into the destination cell. */
+  animation: tile-pop 0.18s ease-in-out 0.22s;
   z-index: 3;
 }
 
@@ -317,7 +323,7 @@ body.dark .score {
      Lives in the same cell as the tile it merged into, behind it. */
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1000px) {
   .boards {
     flex-direction: column;
     gap: 20px;
@@ -326,6 +332,18 @@ body.dark .score {
   .board {
     --tile-size: 60px;
     --tile-gap: 4px;
+  }
+
+  /* On mobile, the active player's board fills the full viewport width.
+     Wrapper padding is removed and the tile-size calc accounts only for
+     board padding (2 * --tile-gap) and the 3 inter-tile gaps. */
+  .board-wrapper.active {
+    padding: 0;
+  }
+
+  .board-wrapper.active .board {
+    --tile-gap: 8px;
+    --tile-size: calc((100vw - 2 * var(--tile-gap) - 3 * var(--tile-gap)) / 4);
   }
 }
 
